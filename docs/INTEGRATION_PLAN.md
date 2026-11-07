@@ -1,42 +1,39 @@
-# Integration plan
+# Integration plan and verified boundaries
 
-## Source responsibilities
+## Upstream responsibilities and licensing
 
-| Upstream | Intended responsibility | Integration status |
-|---|---|---|
-| Frisbiz/solscope | GMGN smart-money leaderboard discovery and wallet performance fields | Not connected |
-| forgottenpeak/soulwinners | Helius wallet activity, persistent wallet history and trader archetypes | Not connected |
-| AtlasOnchain/Atlas | Origin/follower sequencing, sector overlap, propagation and crowding | Not connected |
+| Project | Intended responsibility | License check | Integration |
+|---|---|---|---|
+| Frisbiz/solscope | GMGN leaderboard discovery and wallet metrics | No license declared in repository metadata at audit time; do not copy source without permission | Read-only HTTP adapter to an existing proxy |
+| forgottenpeak/soulwinners | Helius monitoring, wallet history, trader archetypes | MIT declared by upstream repository | Read-only DB adapter; upstream collector still must be deployed |
+| AtlasOnchain/Atlas | Origin/follower propagation, sector overlap and crowding | No license declared in repository metadata at audit time; do not copy source without permission | Helius observation + Grok advisory analysis; not equivalent to full Atlas runtime |
 
-## Required next steps
+Upstream source repositories remain unchanged. The integration repository does not vendor their source.
 
-1. Inspect each upstream tree, dependency files, license and runtime requirements.
-2. Implement isolated adapters with normalized schemas; do not merge incompatible runtimes blindly.
-3. Add source timestamps, provenance, rate-limit handling, retries and stale-data indicators.
-4. Build a reproducible backend test suite with fixture data.
-5. Connect the Android client to the backend and add loading/error/empty states.
-6. Add a deterministic paper ledger and risk controls before any wallet integration.
+## Implemented in this repository
 
-## Important compatibility note
+- FastAPI service with health/status, whale, flow, signals, on-chain checks, Jupiter price/quote preview, strategy evaluation and paper portfolio endpoints.
+- SolScope proxy adapter and discovery fallback.
+- SoulWinners PostgreSQL/SQLite read-only adapter. Schema initialization creates tables only; it does not ingest history.
+- Helius activity adapter with bounded concurrency, retry handling and a short cache.
+- xAI Grok analysis adapter. AI outputs are marked unverified and cannot substitute for chain evidence.
+- Finalized RPC checks for mint authority and supplied LP mint supply.
+- Jupiter Price v3 adapter with explicit missing-price handling.
+- Persistent paper ledger with 8% position cap, ten-position cap by default, -6% stop and origin-wallet exit handling.
+- Android Compose dashboard and wallet-connect flow without transaction signing.
+- CI workflow for backend safety tests and debug APK build.
 
-Atlas documents TypeScript/Bun and the Claude Agent SDK. This project will initially treat its flow logic as a separately deployable adapter/service. "Grok" is only the product name at this stage; an analysis provider is not configured.
+## Mandatory remaining work
 
+1. Deploy the actual SoulWinners collector and verify a continuous 30-day history in the shared database. Do not call schema creation ingestion.
+2. Verify the exact upstream schema and source semantics for ROI, measured win rate, trade count, average buy size and BES.
+3. Implement or deploy Atlas-native origin/follower matching, follower timestamps within 300 seconds, propagation score and crowding score. Grok estimates are advisory only.
+4. Discover the actual LP mint from the pool/program and verify pool association before checking its total supply. Current API only checks a caller-supplied LP mint.
+5. Add durable daily loss limits and auditable risk/exit events.
+6. Configure xAI, Helius, PostgreSQL, SolScope proxy and optional Jupiter credentials as host secrets.
+7. Verify deployed API URL, Render health, Android install and physical Phantom compatibility.
+8. Only after all checks are independently tested, consider a separately reviewed wallet-approved transaction flow. Live trading remains disabled.
 
-## Read-only data integration (implemented scaffold)
+## CI
 
-The FastAPI backend now exposes:
-- `GET /api/v1/whales?period=7d&limit=100`: SolScope GMGN PnL/win-rate leaderboard responses plus SoulWinners qualified-wallet rows.
-- `GET /api/v1/atlas/flows?limit=10`: recent Helius parsed transactions for configured public wallet addresses.
-- `GET /api/v1/paper-portfolio`: paper-only empty ledger; no execution path.
-
-Backend environment:
-- `GMGN_PROXY_URL`: base URL of the existing SolScope proxy service.
-- `SOULWINNERS_DB_PATH`: path to SoulWinners' existing SQLite database on the backend host. It is opened with SQLite read-only mode.
-- `HELIUS_API_KEY`: Helius API key stored as a server secret, never committed to Git.
-- `ATLAS_SEED_WALLETS`: comma-separated public Solana wallet addresses to inspect.
-
-Limitations still to complete:
-- SoulWinners must be deployed with its database accessible to this backend (or a read-only API export must be added).
-- The Atlas endpoint currently returns raw Helius activity. Atlas' own Anthropic-powered agent and propagation/crowding scores still require deploying the Atlas service and exposing a read-only endpoint.
-- SolScope/GMGN response shape and upstream availability must be validated against live responses.
-- No real trading, wallet signing, or Phantom authorization is implemented.
+The GitHub Actions workflow runs Python safety tests and builds a debug APK for feature branch pushes and pull requests. The APK is downloadable from the successful workflow run artifact.
