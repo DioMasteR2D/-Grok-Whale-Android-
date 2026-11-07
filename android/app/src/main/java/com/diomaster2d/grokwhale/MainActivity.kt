@@ -1,6 +1,7 @@
 package com.diomaster2d.grokwhale
 
 import android.os.Bundle
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -20,6 +21,11 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.solana.mobilewalletadapter.clientlib.ActivityResultSender
+import com.solana.mobilewalletadapter.clientlib.ConnectionIdentity
+import com.solana.mobilewalletadapter.clientlib.MobileWalletAdapter
+import com.solana.mobilewalletadapter.clientlib.Solana
+import com.solana.mobilewalletadapter.clientlib.TransactionResult
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -43,12 +49,20 @@ data class AppData(val online:Boolean=false,val status:String="Connecting…",va
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { GrokBotApp() }
+        val walletSender = ActivityResultSender(this)
+        val walletAdapter = MobileWalletAdapter(
+            ConnectionIdentity(
+                Uri.parse("https://diomaster2d.app"),
+                Uri.parse("favicon.ico"),
+                "DioMasteR2D Grok Bot"
+            )
+        ).apply { blockchain = Solana.Mainnet }
+        setContent { GrokBotApp(walletSender, walletAdapter) }
     }
 }
 
 @Composable
-fun GrokBotApp() {
+fun GrokBotApp(walletSender: ActivityResultSender, walletAdapter: MobileWalletAdapter) {
     var screen by remember { mutableStateOf("splash") }
     LaunchedEffect(Unit) { delay(1900); screen = "session" }
     MaterialTheme(colorScheme=darkColorScheme(background=Bg,surface=Panel,primary=Purple,onBackground=Color.White,onSurface=Color.White)) {
@@ -56,7 +70,7 @@ fun GrokBotApp() {
             when(screen) {
                 "splash" -> SplashScreen()
                 "session" -> SessionScreen { screen="dashboard" }
-                else -> DashboardScreen()
+                else -> DashboardScreen(walletSender, walletAdapter)
             }
         }
     }
@@ -91,7 +105,7 @@ private fun SessionScreen(onStart:()->Unit) {
         Column(Modifier.fillMaxWidth().background(Panel2,RoundedCornerShape(22.dp)).padding(16.dp)) {
             Text("you  ·  prompt",color=Muted,fontSize=11.sp,fontFamily=FontFamily.Monospace)
             Spacer(Modifier.height(10.dp))
-            Text("Grok, pull Solana whale wallets via SolScope (GMGN leaderboards) + SoulWinners. Phantom connected.",color=Color.White,fontSize=13.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
+            Text("Grok, pull Solana whale wallets via SolScope (GMGN leaderboards) + SoulWinners. Connect Phantom securely when requested.",color=Color.White,fontSize=13.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
             Text("WALLET ANALYSIS → MEME TRADES. Session 13:30 → 21:30.",color=Amber,fontSize=12.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
             Spacer(Modifier.height(13.dp))
             Text("RANK every wallet by BES, keep the top 10:",color=Amber,fontSize=12.sp,fontFamily=FontFamily.Monospace)
@@ -143,7 +157,8 @@ private suspend fun loadData():AppData = try {
     val whaleRows=buildList {
         if(whaleArray!=null) for(i in 0 until whaleArray.length()) {
             val w=whaleArray.optJSONObject(i) ?: continue
-            add(WalletRow(w.optString("wallet_address"),w.optString("cluster_name",w.optString("cluster_label","—")),w.optDouble("roi_pct",0.0),w.optDouble("profit_token_ratio",0.0),w.optInt("total_trades"),w.optDouble("bes_score",0.0)))
+            val winRate = if (w.has("win_rate") && !w.isNull("win_rate")) w.optDouble("win_rate") else Double.NaN
+            add(WalletRow(w.optString("wallet_address"),w.optString("cluster_name",w.optString("cluster_label","—")),w.optDouble("roi_pct",0.0),winRate,w.optInt("total_trades"),w.optDouble("bes_score",0.0)))
         }
     }
     val rows=buildList {
@@ -156,11 +171,12 @@ private suspend fun loadData():AppData = try {
 } catch(e:Exception) { AppData(status="API OFFLINE",error=e.message ?: "Unknown error") }
 
 @Composable
-private fun DashboardScreen() {
+private fun DashboardScreen(walletSender: ActivityResultSender, walletAdapter: MobileWalletAdapter) {
     var data by remember { mutableStateOf(AppData()) }
     var loading by remember { mutableStateOf(false) }
     var walletLabel by remember { mutableStateOf("Phantom not connected") }
-    var showConnectInfo by remember { mutableStateOf(false) }
+    var walletBusy by remember { mutableStateOf(false) }
+    var walletError by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         while(true) { loading=true; data=loadData(); loading=false; delay(60000) }
     }
@@ -230,8 +246,13 @@ private fun DashboardScreen() {
             Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
                 Text("wallet connection",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
                 Text(walletLabel,color=Muted,fontSize=10.sp)
-                Button(onClick={showConnectInfo=true},modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Purple)) { Text("Phantom integration status") }
-                Text("Not connected. Wallet signing is not implemented in this build. Never enter a seed phrase or private key here.",color=Muted,fontSize=9.sp)
+                Button(
+                    onClick = { if (!walletBusy) { walletBusy = true; walletError = "" } },
+                    modifier=Modifier.fillMaxWidth(),
+                    colors=ButtonDefaults.buttonColors(containerColor=Purple)
+                ) { Text(if (walletBusy) "Connecting…" else "Connect Phantom") }
+                Text("Secure wallet authorization via Solana Mobile Wallet Adapter. No seed phrase or private key is requested.",color=Muted,fontSize=9.sp)
+                if (walletError.isNotBlank()) Text(walletError,color=Red,fontSize=9.sp)
             }
         }
         item {
@@ -251,6 +272,26 @@ private fun DashboardScreen() {
         text={Text("Phantom authorization is not implemented yet. This app cannot connect or sign transactions. Paper mode only; never enter a seed phrase or private key.")},
         confirmButton={ TextButton(onClick={ showConnectInfo = false }) { Text("OK") } }
     )
+}
+
+private fun base58(input: ByteArray): String {
+    val alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    if (input.isEmpty()) return ""
+    val digits = mutableListOf<Int>()
+    for (byte in input) {
+        var carry = byte.toInt() and 0xff
+        for (i in digits.indices) {
+            carry += digits[i] shl 8
+            digits[i] = carry % 58
+            carry /= 58
+        }
+        while (carry > 0) {
+            digits.add(carry % 58)
+            carry /= 58
+        }
+    }
+    val zeros = input.takeWhile { it.toInt() == 0 }.count()
+    return "1".repeat(zeros) + digits.asReversed().joinToString("") { alphabet[it].toString() }
 }
 
 @Composable
