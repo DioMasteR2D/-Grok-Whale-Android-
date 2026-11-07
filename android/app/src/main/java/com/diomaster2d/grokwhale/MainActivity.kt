@@ -133,17 +133,30 @@ private fun SessionScreen(onStart:()->Unit) {
     }
 }
 
-private suspend fun api(path:String):JSONObject = withContext(Dispatchers.IO) {
-    val c=URL(API_BASE+path).openConnection() as HttpURLConnection
-    try {
-        c.requestMethod="GET"; c.connectTimeout=12000; c.readTimeout=25000
-        c.setRequestProperty("Accept","application/json")
-        val code=c.responseCode
-        val stream=if(code in 200..299)c.inputStream else c.errorStream
-        val body=stream.bufferedReader().use{it.readText()}
-        if(code !in 200..299) error("API HTTP "+code)
-        JSONObject(body)
-    } finally { c.disconnect() }
+private suspend fun api(path:String):JSONObject {
+    var lastError:Exception? = null
+    for (attempt in 0..2) {
+        try {
+            return withContext(Dispatchers.IO) {
+                val connection=URL(API_BASE+path).openConnection() as HttpURLConnection
+                try {
+                    connection.requestMethod="GET"
+                    connection.connectTimeout=15000
+                    connection.readTimeout=25000
+                    connection.setRequestProperty("Accept","application/json")
+                    val code=connection.responseCode
+                    val stream=if(code in 200..299) connection.inputStream else connection.errorStream
+                    val body=stream.bufferedReader().use{it.readText()}
+                    if(code !in 200..299) error("API HTTP "+code)
+                    JSONObject(body)
+                } finally { connection.disconnect() }
+            }
+        } catch (e:Exception) {
+            lastError=e
+            if (attempt < 2) delay(1200L * (attempt + 1))
+        }
+    }
+    throw IllegalStateException("API unavailable after 3 attempts: "+(lastError?.message ?: "network error"),lastError)
 }
 
 private suspend fun loadData():AppData = try {
