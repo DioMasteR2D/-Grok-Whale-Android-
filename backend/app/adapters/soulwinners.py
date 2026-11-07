@@ -12,12 +12,56 @@ COLUMNS = """wallet_address, source, roi_pct, median_roi_pct,
     qualified_at, last_alert_at"""
 ORDER = " ORDER BY priority_score DESC LIMIT "
 
+def initialize_postgres_schema() -> dict:
+    """Create only the minimal read schema, idempotently; never seed fabricated data."""
+    if not DATABASE_URL:
+        return {"status": "not_configured"}
+    ddl = """
+    CREATE TABLE IF NOT EXISTS qualified_wallets (
+        wallet_address TEXT PRIMARY KEY,
+        source TEXT,
+        roi_pct DOUBLE PRECISION,
+        median_roi_pct DOUBLE PRECISION,
+        profit_token_ratio DOUBLE PRECISION,
+        trade_frequency DOUBLE PRECISION,
+        roi_per_trade DOUBLE PRECISION,
+        x10_ratio DOUBLE PRECISION,
+        x20_ratio DOUBLE PRECISION,
+        x50_ratio DOUBLE PRECISION,
+        x100_ratio DOUBLE PRECISION,
+        median_hold_time DOUBLE PRECISION,
+        profit_per_hold_second DOUBLE PRECISION,
+        cluster INTEGER,
+        cluster_label TEXT,
+        cluster_name TEXT,
+        roi_final DOUBLE PRECISION,
+        priority_score DOUBLE PRECISION,
+        tier TEXT,
+        strategy_bucket TEXT,
+        current_balance_sol DOUBLE PRECISION,
+        total_trades INTEGER,
+        win_rate DOUBLE PRECISION,
+        qualified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_alert_at TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_qualified_priority ON qualified_wallets(priority_score DESC);
+    CREATE INDEX IF NOT EXISTS idx_qualified_tier ON qualified_wallets(tier);
+    """
+    try:
+        import psycopg
+        with psycopg.connect(DATABASE_URL, connect_timeout=8) as conn:
+            with conn.cursor() as cur:
+                cur.execute(ddl)
+        return {"status": "ok"}
+    except Exception:
+        # Never expose database URLs, passwords, or provider connection details.
+        return {"status": "unavailable"}
+
 def fetch_qualified_wallets(limit: int = 100) -> dict:
     count = max(1, min(limit, 500))
     if DATABASE_URL:
         try:
             import psycopg
-            # A read-only transaction prevents accidental mutations.
             with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
                 with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                     cur.execute("SET TRANSACTION READ ONLY")
@@ -27,8 +71,7 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
         except psycopg.errors.UndefinedTable:
             return {"status": "schema_pending", "items": [], "storage": "postgres",
                     "message": "SoulWinners schema has not been initialized yet."}
-        except Exception as exc:
-            # Avoid returning connection strings or credentials in public API errors.
+        except Exception:
             return {"status": "unavailable", "items": [], "storage": "postgres",
                     "message": "SoulWinners PostgreSQL query failed; inspect private server logs."}
     if not DB_PATH:

@@ -1,16 +1,29 @@
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
+import logging
 from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
-from app.adapters.soulwinners import fetch_qualified_wallets, DB_PATH, DATABASE_URL
+from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY, ATLAS_SEED_WALLETS
 
-app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.3.0")
+logger = logging.getLogger("grok-whale-api")
+app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.4.0")
 
 class PaperStatus(BaseModel):
     mode: str = "paper"
     live_trading_enabled: bool = False
     note: str = "Simulation only. No transaction signing or order execution."
+
+@app.on_event("startup")
+def initialize_sources():
+    if DATABASE_URL:
+        result = initialize_postgres_schema()
+        if result.get("status") != "ok":
+            logger.warning("SoulWinners schema initialization did not complete: %s", result.get("status"))
+        else:
+            logger.info("SoulWinners PostgreSQL schema is ready.")
+    else:
+        logger.info("SoulWinners PostgreSQL is not configured; skipping schema initialization.")
 
 @app.get("/")
 def root():
@@ -30,16 +43,17 @@ def health():
 
 @app.get("/api/v1/status")
 def status():
+    db = fetch_qualified_wallets(1) if DATABASE_URL else {"status": "not_configured"}
     return {
         "mode": "paper",
         "live_trading_enabled": False,
         "sources": {
             "solscope_proxy": "configured" if GMGN_PROXY_URL else "missing_config",
-            "soulwinners_database": "configured" if (DATABASE_URL or DB_PATH) else "missing_config",
+            "soulwinners_database": db.get("status", "unknown"),
             "atlas_helius": "configured" if HELIUS_API_KEY and ATLAS_SEED_WALLETS else "awaiting_step_3",
             "atlas_agent": "not_deployed",
         },
-        "note": "Source configuration status only; live source data is verified by the corresponding endpoint.",
+        "note": "Readiness reflects configuration and database schema; live upstream data is checked by the source endpoints.",
     }
 
 @app.get("/api/v1/whales")
