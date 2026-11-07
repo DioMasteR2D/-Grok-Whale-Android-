@@ -96,6 +96,8 @@ async def _fetch_one(client, address, limit):
                     "timestamp": tx.get("timestamp"),
                     "type": tx.get("type"),
                     "description": tx.get("description"),
+                    "fee_payer": tx.get("feePayer"),
+                    "slot": tx.get("slot"),
                     "token_transfers": tx.get("tokenTransfers", []),
                     "native_transfers": tx.get("nativeTransfers", []),
                 } for tx in txs]
@@ -111,11 +113,19 @@ async def _fetch_one(client, address, limit):
     raise RuntimeError(f"Helius HTTP {last_status or 'unknown'}")
 
 
-async def fetch_wallet_flows(limit: int = 10) -> dict:
+async def fetch_wallet_flows(limit: int = 10, wallet_addresses: list[str] | None = None) -> dict:
     if not HELIUS_API_KEY:
         return {"status": "not_configured", "items": [],
                 "message": "Set HELIUS_API_KEY in the service environment."}
-    wallets, discovery_source, discovery_warnings = await _discover_wallets(limit=20)
+    if wallet_addresses is not None:
+        wallets = list(dict.fromkeys(
+            address.strip() for address in wallet_addresses
+            if isinstance(address, str) and BASE58_ADDRESS.fullmatch(address.strip())
+        ))[:max(1, min(limit, 20))]
+        discovery_source = "soulwinners_qualified_top10"
+        discovery_warnings = []
+    else:
+        wallets, discovery_source, discovery_warnings = await _discover_wallets(limit=20)
     if not wallets:
         return {"status": "discovery_error", "items": [],
                 "discovery": discovery_source, "warnings": discovery_warnings,
@@ -150,5 +160,5 @@ async def fetch_wallet_flows(limit: int = 10) -> dict:
         "items": items,
         "errors": errors,
         "warnings": discovery_warnings,
-        "message": "Helius raw wallet activity only. dEdge fallback is a cached 15-day leaderboard; Atlas AI scoring remains a separate, undeployed service."
+        "message": "Helius parsed wallet activity only. Explicit wallet lists are fetched as supplied; otherwise discovery uses SolScope then a public dEdge fallback. No trading or wallet ranking is inferred from this activity."
     }
