@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 import logging
 from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
-from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY, ATLAS_SEED_WALLETS
+from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
 
 logger = logging.getLogger("grok-whale-api")
-app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.4.0")
+app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.5.0")
 
 class PaperStatus(BaseModel):
     mode: str = "paper"
@@ -50,10 +50,10 @@ def status():
         "sources": {
             "solscope_proxy": "configured" if GMGN_PROXY_URL else "missing_config",
             "soulwinners_database": db.get("status", "unknown"),
-            "atlas_helius": "configured" if HELIUS_API_KEY and ATLAS_SEED_WALLETS else "awaiting_step_3",
+            "atlas_helius": "configured_auto_discovery" if HELIUS_API_KEY and GMGN_PROXY_URL else ("missing_helius_key" if not HELIUS_API_KEY else "missing_solscope_proxy"),
             "atlas_agent": "not_deployed",
         },
-        "note": "Readiness reflects configuration and database schema; live upstream data is checked by the source endpoints.",
+        "note": "Whale wallets are discovered automatically from SolScope. Helius provides raw activity; the separate Atlas agent is not deployed yet.",
     }
 
 @app.get("/api/v1/whales")
