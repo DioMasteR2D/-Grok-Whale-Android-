@@ -2,6 +2,8 @@ from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import logging
+import asyncio
+import time
 from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
@@ -9,6 +11,22 @@ from app.analysis import build_flow_signals
 
 logger = logging.getLogger("grok-whale-api")
 app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.6.0")
+
+# Share one Helius scan between dashboard endpoints; avoids duplicate requests
+# when the Android client refreshes flows and signals together.
+_FLOW_CACHE_TTL_SECONDS = 45
+_flow_cache = {}
+_flow_cache_lock = asyncio.Lock()
+
+async def get_cached_wallet_flows(limit: int = 10):
+    now = time.monotonic()
+    async with _flow_cache_lock:
+        cached = _flow_cache.get(limit)
+        if cached and now - cached["stored_at"] < _FLOW_CACHE_TTL_SECONDS:
+            return cached["payload"]
+        payload = await fetch_wallet_flows(limit)
+        _flow_cache[limit] = {"stored_at": time.monotonic(), "payload": payload}
+        return payload
 
 class PaperStatus(BaseModel):
     mode: str = "paper"
@@ -69,11 +87,11 @@ async def whales(period: str = Query(default="7d", pattern="^(1d|7d|30d)$"), lim
 
 @app.get("/api/v1/atlas/flows")
 async def atlas_flows(limit: int = Query(default=10, ge=1, le=25)):
-    return await fetch_wallet_flows(limit)
+    return await get_cached_wallet_flows(limit)
 
 @app.get("/api/v1/signals")
 async def signals(limit: int = Query(default=25, ge=1, le=100)):
-    flows = await fetch_wallet_flows(10)
+    flows = await get_cached_wallet_flows(10)
     return build_flow_signals(flows, max_items=limit)
 
 @app.get("/api/v1/paper-portfolio")
