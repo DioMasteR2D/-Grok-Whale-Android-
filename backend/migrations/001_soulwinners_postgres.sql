@@ -24,8 +24,14 @@ CREATE TABLE IF NOT EXISTS qualified_wallets (
     current_balance_sol DOUBLE PRECISION,
     total_trades INTEGER,
     win_rate DOUBLE PRECISION,
+    average_buy_size_sol DOUBLE PRECISION,
+    bes_score DOUBLE PRECISION,
     qualified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_alert_at TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_qualified_priority ON qualified_wallets(priority_score DESC);
 CREATE INDEX IF NOT EXISTS idx_qualified_tier ON qualified_wallets(tier);
+
+ALTER TABLE qualified_wallets ADD COLUMN IF NOT EXISTS average_buy_size_sol DOUBLE PRECISION;
+ALTER TABLE qualified_wallets ADD COLUMN IF NOT EXISTS bes_score DOUBLE PRECISION;
+CREATE INDEX IF NOT EXISTS idx_qualified_bes ON qualified_wallets(bes_score DESC);
