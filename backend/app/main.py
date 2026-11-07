@@ -11,7 +11,7 @@ import time
 from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
-from app.adapters.atlas_agent import analyze_atlas_flows, ANTHROPIC_API_KEY
+from app.adapters.atlas_agent import analyze_atlas_flows, XAI_API_KEY, GROK_MODEL
 from app.analysis import build_flow_signals
 from app.strategy import STRATEGY, session_status, evaluate_entry
 from app import paper
@@ -100,9 +100,9 @@ def status():
             "soulwinners_database": db.get("status", "unknown"),
             "atlas_helius": "configured_auto_discovery" if HELIUS_API_KEY and GMGN_PROXY_URL else ("missing_helius_key" if not HELIUS_API_KEY else "missing_solscope_proxy"),
             "flow_analytics": "deterministic_v1",
-            "atlas_agent": "configured" if ANTHROPIC_API_KEY else "missing_anthropic_key",
+            "grok_agent": {"status": "configured", "provider": "xAI", "model": GROK_MODEL} if XAI_API_KEY else {"status": "missing_xai_key", "provider": "xAI"},
         },
-        "note": "Helius provides observed wallet activity; Atlas LLM analysis is available when Anthropic is configured. Safety gates remain independently fail-closed.",
+        "note": "Helius provides observed wallet activity; Grok analysis is advisory only. AI-generated propagation/crowding estimates never satisfy on-chain safety gates.",
     }
 
 @app.get("/api/v1/whales")
