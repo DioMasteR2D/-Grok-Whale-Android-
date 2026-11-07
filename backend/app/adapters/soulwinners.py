@@ -81,7 +81,7 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
                     has_performance = next(iter(cur.fetchone().values())) is not None
                     if has_performance:
                         cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='wallet_performance'")
-                        performance_columns = {r[0] for r in cur.fetchall()}
+                        performance_columns = {r["column_name"] for r in cur.fetchall()}
                         has_performance = {"wallet_address", "buy_transactions", "total_sol_spent"}.issubset(performance_columns)
                     if has_performance:
                         cur.execute(
