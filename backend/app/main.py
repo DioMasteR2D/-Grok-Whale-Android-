@@ -5,9 +5,10 @@ import logging
 from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
+from app.analysis import build_flow_signals
 
 logger = logging.getLogger("grok-whale-api")
-app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.5.0")
+app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.6.0")
 
 class PaperStatus(BaseModel):
     mode: str = "paper"
@@ -51,9 +52,10 @@ def status():
             "solscope_proxy": "configured" if GMGN_PROXY_URL else "missing_config",
             "soulwinners_database": db.get("status", "unknown"),
             "atlas_helius": "configured_auto_discovery" if HELIUS_API_KEY and GMGN_PROXY_URL else ("missing_helius_key" if not HELIUS_API_KEY else "missing_solscope_proxy"),
+            "flow_analytics": "deterministic_v1",
             "atlas_agent": "not_deployed",
         },
-        "note": "Whale wallets are discovered automatically from SolScope. Helius provides raw activity; the separate Atlas agent is not deployed yet.",
+        "note": "Whale wallets are discovered automatically. Helius provides raw activity; flow analytics are deterministic heuristics, not an LLM agent.",
     }
 
 @app.get("/api/v1/whales")
@@ -70,9 +72,9 @@ async def atlas_flows(limit: int = Query(default=10, ge=1, le=25)):
     return await fetch_wallet_flows(limit)
 
 @app.get("/api/v1/signals")
-def signals():
-    return {"items": [], "source_status": "pending_fusion",
-            "message": "Signals are withheld until upstream source records are available and normalized."}
+async def signals(limit: int = Query(default=25, ge=1, le=100)):
+    flows = await fetch_wallet_flows(10)
+    return build_flow_signals(flows, max_items=limit)
 
 @app.get("/api/v1/paper-portfolio")
 def paper_portfolio():
