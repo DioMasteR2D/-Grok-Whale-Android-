@@ -37,7 +37,8 @@ private val Amber = Color(0xFFE9A66A)
 private val Red = Color(0xFFFF667A)
 
 data class SignalRow(val mint:String,val bias:String,val score:Int,val action:String,val buyers:Int,val sellers:Int,val confidence:String)
-data class AppData(val online:Boolean=false,val status:String="Connecting…",val soul:String="—",val atlas:String="—",val discovery:String="—",val flow:String="—",val wallets:String="—",val signals:List<SignalRow> = emptyList(),val error:String="")
+data class WalletRow(val address:String,val archetype:String,val roi:Double,val winRate:Double,val trades:Int,val score:Double)
+data class AppData(val online:Boolean=false,val status:String="Connecting…",val soul:String="—",val atlas:String="—",val discovery:String="—",val flow:String="—",val wallets:String="—",val signals:List<SignalRow> = emptyList(),val topWhales:List<WalletRow> = emptyList(),val error:String="")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
