@@ -112,7 +112,7 @@ private fun SessionScreen(onStart:()->Unit) {
             }
         }
         Spacer(Modifier.height(16.dp))
-        Text("✓  SolScope   1,240 wallets → 200 discovered",color=Green,fontSize=11.sp,fontFamily=FontFamily.Monospace)
+        Text("SolScope · live discovery is checked after dashboard opens",color=Muted,fontSize=10.sp,fontFamily=FontFamily.Monospace)
         Spacer(Modifier.weight(1f))
         Button(onClick=onStart,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Purple),shape=RoundedCornerShape(16.dp)) { Text("OPEN WHALE DASHBOARD") }
         Text("Wallet authorization is a separate Phantom approval step.",color=Muted,fontSize=9.sp,modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=8.dp))
@@ -173,7 +173,7 @@ private fun DashboardScreen() {
                     Text("Grok Bot",color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
                     Text("whale mode",color=Muted,fontSize=10.sp)
                 }
-                Text("● Live",color=Green,fontSize=11.sp)
+                Text(if(data.online)"● Live" else "● Offline",color=if(data.online)Green else Red,fontSize=11.sp)
             }
         }
         item {
@@ -199,6 +199,22 @@ private fun DashboardScreen() {
         item { StatusRow("Atlas Agent",data.atlas) }
         item { StatusRow("Helius flow",data.flow) }
         item { StatusRow("Wallet responses",data.wallets) }
+        item {
+            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
+                Text("SOULWINNERS · TOP 10",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
+                Text("Original priority_score ranking · qualification gates",color=Muted,fontSize=9.sp)
+                Spacer(Modifier.height(7.dp))
+                if(data.topWhales.isEmpty()) {
+                    Text("No qualified SoulWinners wallets returned. The original pipeline must populate its database.",color=Amber,fontSize=10.sp)
+                } else {
+                    data.topWhales.forEachIndexed { index,w ->
+                        Text("${index+1}. ${w.address.take(5)}…${w.address.takeLast(5)}  ${w.archetype}",color=Color.White,fontSize=10.sp)
+                        Text("ROI ${"%.1f".format(w.roi)}% · Win ${(w.winRate*100).toInt()}% · ${w.trades} trades · score ${"%.3f".format(w.score)}",color=Muted,fontSize=9.sp)
+                        Spacer(Modifier.height(5.dp))
+                    }
+                }
+            }
+        }
         if(data.error.isNotBlank()) item { Text(data.error,color=Red,fontSize=10.sp) }
         item {
             Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
