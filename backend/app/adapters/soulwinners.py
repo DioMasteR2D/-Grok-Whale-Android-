@@ -99,9 +99,9 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
                 item = dict(row)
                 avg_buy = item.get("average_buy_size_sol")
                 roi_trade = item.get("roi_per_trade")
+                # Win rate must be the measured win_rate field. profit_token_ratio
+                # is a distinct upstream metric and must never feed BES.
                 win_rate = item.get("win_rate")
-                if win_rate is None:
-                    win_rate = item.get("profit_token_ratio")
                 frequency = item.get("trade_frequency")
                 if all(isinstance(v, (int, float)) for v in (avg_buy, roi_trade, win_rate, frequency)) and avg_buy > 0:
                     item["bes_score"] = (roi_trade * win_rate * frequency) / avg_buy
@@ -133,9 +133,9 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
                 item = dict(row)
                 avg_buy = item.get("average_buy_size_sol")
                 roi_trade = item.get("roi_per_trade")
+                # Win rate must be the measured win_rate field. profit_token_ratio
+                # is a distinct upstream metric and must never feed BES.
                 win_rate = item.get("win_rate")
-                if win_rate is None:
-                    win_rate = item.get("profit_token_ratio")
                 frequency = item.get("trade_frequency")
                 if all(isinstance(v, (int, float)) for v in (avg_buy, roi_trade, win_rate, frequency)) and avg_buy > 0:
                     item["bes_score"] = (roi_trade * win_rate * frequency) / avg_buy
