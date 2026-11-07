@@ -248,6 +248,33 @@ async def jupiter_order_preview(payload: JupiterOrderRequest):
         "message": "Quote only. Atlas entry gates and paper/live controls are not satisfied for execution. No transaction was signed or sent.",
     }
 
+@app.get("/api/v1/execution/readiness")
+def execution_readiness():
+    """Explicitly report blockers before any real swap can be enabled."""
+    db = fetch_qualified_wallets(1) if DATABASE_URL else {"status": "not_configured"}
+    checks = {
+        "soulwinners_ingestion_verified": False,
+        "measured_bes_and_win_rate_available": False,
+        "atlas_agent_runtime_deployed": False,
+        "lp_burn_and_mint_revocation_provider": False,
+        "six_atlas_entry_gates_verified": False,
+        "jupiter_order_preview_available": True,
+        "phantom_transaction_signing_and_approval_tested": False,
+        "risk_and_exit_engine_persistent": False,
+    }
+    blockers = [name for name, passed in checks.items() if not passed]
+    return {
+        "mode": "paper",
+        "automatic_live_buys": False,
+        "live_trading_enabled": False,
+        "wallet_approval_required": True,
+        "soulwinners_database_status": db.get("status", "unknown"),
+        "checks": checks,
+        "blockers": blockers,
+        "ready_for_live_execution": False,
+        "message": "Live execution is fail-closed until every data, safety, wallet-approval, and risk check is verified.",
+    }
+
 @app.get("/api/v1/paper-portfolio")
 def paper_portfolio():
     return {"mode": "paper", "quote_currency": "USD", "cash": 0.0,
