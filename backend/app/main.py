@@ -2,7 +2,7 @@ from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
 from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
-from app.adapters.soulwinners import fetch_qualified_wallets, DB_PATH
+from app.adapters.soulwinners import fetch_qualified_wallets, DB_PATH, DATABASE_URL
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY, ATLAS_SEED_WALLETS
 
 app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.3.0")
@@ -35,7 +35,7 @@ def status():
         "live_trading_enabled": False,
         "sources": {
             "solscope_proxy": "configured" if GMGN_PROXY_URL else "missing_config",
-            "soulwinners_database": "configured" if DB_PATH else "missing_config",
+            "soulwinners_database": "configured" if (DATABASE_URL or DB_PATH) else "missing_config",
             "atlas_helius": "configured" if HELIUS_API_KEY and ATLAS_SEED_WALLETS else "awaiting_step_3",
             "atlas_agent": "not_deployed",
         },
