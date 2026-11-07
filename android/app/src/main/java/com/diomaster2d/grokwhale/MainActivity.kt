@@ -143,7 +143,7 @@ private suspend fun loadData():AppData = try {
     val whaleRows=buildList {
         if(whaleArray!=null) for(i in 0 until whaleArray.length()) {
             val w=whaleArray.optJSONObject(i) ?: continue
-            add(WalletRow(w.optString("wallet_address"),w.optString("cluster_name",w.optString("cluster_label","—")),w.optDouble("roi_pct",0.0),w.optDouble("profit_token_ratio",0.0),w.optInt("total_trades"),w.optDouble("priority_score",0.0)))
+            add(WalletRow(w.optString("wallet_address"),w.optString("cluster_name",w.optString("cluster_label","—")),w.optDouble("roi_pct",0.0),w.optDouble("profit_token_ratio",0.0),w.optInt("total_trades"),w.optDouble("bes_score",0.0)))
         }
     }
     val rows=buildList {
@@ -202,14 +202,14 @@ private fun DashboardScreen() {
         item {
             Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
                 Text("SOULWINNERS · TOP 10",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
-                Text("Original priority_score ranking · qualification gates",color=Muted,fontSize=9.sp)
+                Text("30-day filters · ranked by verified BES",color=Muted,fontSize=9.sp)
                 Spacer(Modifier.height(7.dp))
                 if(data.topWhales.isEmpty()) {
                     Text("No qualified SoulWinners wallets returned. The original pipeline must populate its database.",color=Amber,fontSize=10.sp)
                 } else {
                     data.topWhales.forEachIndexed { index,w ->
                         Text("${index+1}. ${w.address.take(5)}…${w.address.takeLast(5)}  ${w.archetype}",color=Color.White,fontSize=10.sp)
-                        Text("ROI ${"%.1f".format(w.roi)}% · Win ${(w.winRate*100).toInt()}% · ${w.trades} trades · score ${"%.3f".format(w.score)}",color=Muted,fontSize=9.sp)
+                        Text("ROI ${"%.1f".format(w.roi)}% · Win ${(w.winRate*100).toInt()}% · ${w.trades} trades · BES ${"%.4f".format(w.score)}",color=Muted,fontSize=9.sp)
                         Spacer(Modifier.height(5.dp))
                     }
                 }
@@ -230,8 +230,8 @@ private fun DashboardScreen() {
             Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
                 Text("wallet connection",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
                 Text(walletLabel,color=Muted,fontSize=10.sp)
-                Button(onClick={showConnectInfo=true},modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Purple)) { Text("Connect Phantom") }
-                Text("Phantom connection will be enabled after the dashboard and session data are verified. Never enter a seed phrase or private key here.",color=Muted,fontSize=9.sp)
+                Button(onClick={showConnectInfo=true},modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Purple)) { Text("Phantom integration status") }
+                Text("Not connected. Wallet signing is not implemented in this build. Never enter a seed phrase or private key here.",color=Muted,fontSize=9.sp)
             }
         }
         item {
@@ -248,7 +248,7 @@ private fun DashboardScreen() {
     if(showConnectInfo) AlertDialog(
         onDismissRequest={showConnectInfo=false},
         title={Text("Phantom connection")},
-        text={Text("Native Mobile Wallet Adapter dependency is included. The authorization flow still needs its Activity-result integration and device verification before this can report a connected wallet.")},
+        text={Text("Phantom authorization is not implemented yet. This app cannot connect or sign transactions. Paper mode only; never enter a seed phrase or private key.")},
         confirmButton={ TextButton(onClick={ showConnectInfo = false }) { Text("OK") } }
     )
 }
