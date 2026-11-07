@@ -78,7 +78,7 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
                     # Derive average buy size from real upstream performance
                     # data when that table exists; never infer BES from priority_score.
                     cur.execute("SELECT to_regclass('public.wallet_performance')")
-                    has_performance = cur.fetchone()[0] is not None
+                    has_performance = next(iter(cur.fetchone().values())) is not None
                     if has_performance:
                         cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='wallet_performance'")
                         performance_columns = {r[0] for r in cur.fetchall()}
