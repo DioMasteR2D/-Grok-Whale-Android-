@@ -32,7 +32,7 @@ import java.net.URL
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-private const val API_BASE = "https://diomaster2d-grok-whale-api.onrender.com"
+private const val API_BASE = BuildConfig.API_BASE_URL
 private val Bg = Color(0xFF09080E)
 private val Panel = Color(0xFF171423)
 private val Panel2 = Color(0xFF211C32)
@@ -114,7 +114,7 @@ private fun SessionScreen(onStart:()->Unit) {
             Text("BUY a meme only if Atlas says ALL:",color=Amber,fontSize=12.sp,fontFamily=FontFamily.Monospace)
             Text("– origin wallet in top 10, PropagationScore 0.70+\n– 2+ whales follow within 5 min\n– crowding under 0.55, LP burned, mint revoked",color=Color.White,fontSize=12.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
             Spacer(Modifier.height(13.dp))
-            Text("Size max 8%. Stop -6%. Exit when the whale exits.\nExecute via Phantom. Log wallet, score, reason.",color=Color.White,fontSize=12.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
+            Text("Size max 8%. Stop -6%. Exit when the whale exits.\nPaper-only. Phantom connection is read-only; no signing or sending. Log wallet, score, reason.",color=Color.White,fontSize=12.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
         }
         Spacer(Modifier.height(18.dp))
         Row(verticalAlignment=Alignment.CenterVertically) {
@@ -211,7 +211,7 @@ private suspend fun loadData():AppData = try {
         agent.optJSONArray("alerts") != null -> "scan complete · "+agent.optJSONArray("alerts")!!.length()+" alerts"
         else -> "scan returned"
     }
-    AppData(online=true,status="LIVE DATA",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows,readiness=if(readiness.optBoolean("ready_for_live_execution")) "All readiness checks passed" else "LIVE EXECUTION BLOCKED",blockers=buildList { val b=readiness.optJSONArray("blockers"); if(b!=null) for(i in 0 until b.length()) add(b.optString(i)) },paperSummary="Cash $"+paper.optDouble("cash",0.0)+" · Open "+(paper.optJSONArray("open_positions")?.length() ?: 0)+" · Realized PnL $"+paper.optDouble("realized_pnl",0.0))
+    AppData(online=true,status="API ONLINE · SOURCE STATUS SHOWN BELOW",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows,readiness=if(readiness.optBoolean("ready_for_live_execution")) "All readiness checks passed" else "LIVE EXECUTION BLOCKED",blockers=buildList { val b=readiness.optJSONArray("blockers"); if(b!=null) for(i in 0 until b.length()) add(b.optString(i)) },paperSummary="Equity $"+paper.optDouble("equity",0.0)+" · Cash $"+paper.optDouble("cash",0.0)+" · Open "+(paper.optJSONArray("open_positions")?.length() ?: 0)+" · Realized PnL $"+paper.optDouble("realized_pnl",0.0))
 } catch(e:Exception) { AppData(status="API OFFLINE",error=e.message ?: "Unknown error") }
 
 @Composable
@@ -233,7 +233,7 @@ private fun DashboardScreen(walletSender: ActivityResultSender, walletAdapter: M
                     Text("Grok Bot",color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
                     Text("whale mode",color=Muted,fontSize=10.sp)
                 }
-                Text(if(data.online)"● Live" else "● Offline",color=if(data.online)Green else Red,fontSize=11.sp)
+                Text(if(data.online)"● API Online" else "● Offline",color=if(data.online)Green else Red,fontSize=11.sp)
             }
         }
         item {
@@ -242,8 +242,8 @@ private fun DashboardScreen(walletSender: ActivityResultSender, walletAdapter: M
                     Text("trading session 13:30 → 21:30",color=Muted,fontSize=9.sp)
                     Text(if(data.online)"● synced" else "● offline",color=if(data.online)Green else Red,fontSize=9.sp)
                 }
-                Text("—",color=Color.White,fontSize=37.sp,fontWeight=FontWeight.Bold)
-                Text("Portfolio balance unavailable · paper/live accounting not connected",color=Muted,fontSize=9.sp)
+                Text(if(data.online) "PAPER" else "—",color=Color.White,fontSize=37.sp,fontWeight=FontWeight.Bold)
+                Text(data.paperSummary,color=Muted,fontSize=9.sp)
                 Spacer(Modifier.height(8.dp))
                 Text("No fabricated PnL · live orders disabled until wallet and execution checks are complete",color=Amber,fontSize=9.sp)
             }
@@ -296,7 +296,7 @@ private fun DashboardScreen(walletSender: ActivityResultSender, walletAdapter: M
             Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
                     Text("atlas flow log",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
-                    Text(if(loading)"syncing" else "stream",color=Green,fontSize=9.sp)
+                    Text(if(loading)"syncing" else "polling",color=Green,fontSize=9.sp)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(if(data.signals.isEmpty()) "Waiting for verified Atlas alerts…" else data.signals.take(8).joinToString("\n") { "• ${it.action.uppercase()}  ${it.mint.take(8)}…  score ${it.score}" },color=Muted,fontSize=10.sp,lineHeight=17.sp,fontFamily=FontFamily.Monospace)
