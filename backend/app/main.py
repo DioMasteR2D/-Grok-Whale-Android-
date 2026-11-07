@@ -12,7 +12,7 @@ from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
 from app.adapters.atlas_agent import analyze_atlas_flows, XAI_API_KEY, GROK_MODEL
-from app.analysis import build_flow_signals
+from app.analysis import build_flow_signals, build_atlas_propagation
 from app.strategy import STRATEGY, session_status, evaluate_entry
 from app import paper
 from app.adapters.onchain import verify_token
@@ -199,12 +199,27 @@ def qualified_top_whales():
 
 @app.post("/api/v1/atlas/agent/scan")
 async def atlas_agent_scan(limit: int = Query(default=10, ge=1, le=20)):
-    """Run bounded Atlas LLM analysis over current Helius observations."""
-    flows = await get_cached_wallet_flows(limit)
-    top_result = fetch_qualified_wallets(500) if DATABASE_URL else {"status": "not_configured", "items": []}
+    """Scan only SoulWinners-qualified wallets; never substitute unrelated discovery."""
+    top_result = fetch_qualified_wallets(500) if DATABASE_URL or DB_PATH else {"status": "not_configured", "items": []}
     top_items, qualification = _soulwinners_top10(top_result.get("items", [])) if top_result.get("status") == "ok" else ([], {"returned": 0})
+    if not top_items:
+        return {
+            "status": "no_qualified_wallets", "agent": "grok-xai", "alerts": [],
+            "deterministic_propagation": {"status": "blocked", "items": []},
+            "wallet_ranking_status": top_result.get("status"), "wallet_qualification": qualification,
+            "message": "No SoulWinners wallets satisfy the current measured qualification gates. Atlas scan is not run against unrelated discovery wallets.",
+            "live_trading_enabled": False,
+        }
+    qualified_addresses = [row["wallet_address"] for row in top_items]
+    flows = await fetch_wallet_flows(limit=min(limit, len(qualified_addresses)), wallet_addresses=qualified_addresses)
+    deterministic = build_atlas_propagation(flows, top_items, window_seconds=300)
     analysis = await analyze_atlas_flows(flows, top_items)
-    return {**analysis, "source_status": flows.get("status"), "wallet_ranking_status": top_result.get("status"), "wallet_qualification": qualification, "live_trading_enabled": False}
+    return {
+        **analysis, "source_status": flows.get("status"),
+        "wallet_ranking_status": top_result.get("status"), "wallet_qualification": qualification,
+        "deterministic_propagation": deterministic, "ai_is_advisory_only": True,
+        "live_trading_enabled": False,
+    }
 
 @app.get("/api/v1/atlas/flows")
 async def atlas_flows(limit: int = Query(default=10, ge=1, le=25)):
