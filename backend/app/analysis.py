@@ -136,7 +136,7 @@ def build_atlas_propagation(flow_payload: dict, qualified_wallets: list[dict], w
         for tx in wallet_result.get("transactions", []):
             if str(tx.get("type") or "").upper() != "SWAP":
                 continue
-            if tx.get("fee_payer") and tx.get("fee_payer") != wallet:
+            if tx.get("fee_payer") != wallet:
                 continue
             try:
                 timestamp = int(tx.get("timestamp") or 0)
