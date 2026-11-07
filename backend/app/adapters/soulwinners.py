@@ -1,18 +1,32 @@
-"""SoulWinners data adapter.
-
-SoulWinners is a standalone Python monitoring pipeline with its own SQLite
-schema and background workers. This integration reads its exported API/feed
-when configured; it does not start its Telegram bot or any execution modules.
-"""
+"""Read-only adapter for SoulWinners' documented SQLite output schema."""
 import os
-import httpx
+import sqlite3
+from pathlib import Path
 
-SOULWINNERS_API_URL = os.getenv("SOULWINNERS_API_URL", "").rstrip("/")
+DB_PATH = os.getenv("SOULWINNERS_DB_PATH", "")
 
-async def fetch_wallets() -> dict:
-    if not SOULWINNERS_API_URL:
-        return {"status": "not_configured", "items": [], "message": "Configure the SoulWinners read-only feed/API endpoint."}
-    async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.get(SOULWINNERS_API_URL + "/api/wallets")
-        response.raise_for_status()
-        return {"status": "ok", "items": response.json()}
+def fetch_qualified_wallets(limit: int = 100) -> dict:
+    if not DB_PATH:
+        return {"status": "not_configured", "items": [], "message": "Set SOULWINNERS_DB_PATH to the SoulWinners SQLite database file."}
+    path = Path(DB_PATH)
+    if not path.is_file():
+        return {"status": "unavailable", "items": [], "message": "Configured SoulWinners database file was not found."}
+    try:
+        # URI mode=ro prevents this integration from modifying the upstream DB.
+        conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True, timeout=5)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """SELECT wallet_address, source, roi_pct, median_roi_pct,
+                          profit_token_ratio, trade_frequency, roi_per_trade,
+                          tier, strategy_bucket, current_balance_sol,
+                          total_trades, win_rate, qualified_at, last_alert_at
+                   FROM qualified_wallets
+                   ORDER BY priority_score DESC LIMIT ?""",
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+            return {"status": "ok", "items": [dict(row) for row in rows]}
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        return {"status": "schema_error", "items": [], "message": str(exc)}
