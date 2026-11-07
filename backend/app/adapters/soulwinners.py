@@ -71,7 +71,28 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
             with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
                 with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                     cur.execute("SET TRANSACTION READ ONLY")
-                    cur.execute("SELECT " + COLUMNS + " FROM qualified_wallets" + ORDER + "%s", (count,))
+                    # Derive average buy size from real upstream performance
+                    # data when that table exists; never infer BES from priority_score.
+                    cur.execute("SELECT to_regclass('public.wallet_performance')")
+                    has_performance = cur.fetchone()[0] is not None
+                    if has_performance:
+                        cur.execute(
+                            """SELECT q.wallet_address, q.source, q.roi_pct, q.median_roi_pct,
+                                      q.profit_token_ratio, q.trade_frequency, q.roi_per_trade,
+                                      q.x10_ratio, q.x20_ratio, q.x50_ratio, q.x100_ratio,
+                                      q.cluster, q.cluster_label, q.cluster_name, q.roi_final,
+                                      q.priority_score, q.tier, q.strategy_bucket,
+                                      q.current_balance_sol, q.total_trades, q.win_rate,
+                                      CASE WHEN p.buy_transactions > 0
+                                           THEN p.total_sol_spent / p.buy_transactions
+                                           ELSE q.average_buy_size_sol END AS average_buy_size_sol,
+                                      q.bes_score, q.qualified_at, q.last_alert_at
+                               FROM qualified_wallets q
+                               LEFT JOIN wallet_performance p ON p.wallet_address=q.wallet_address
+                               LIMIT %s""",
+                            (count,))
+                    else:
+                        cur.execute("SELECT " + COLUMNS + " FROM qualified_wallets LIMIT %s", (count,))
                     rows = cur.fetchall()
             items = []
             for row in rows:
@@ -88,7 +109,8 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
                     item["bes_score"] = None
                 items.append(item)
             items.sort(key=lambda x: x["bes_score"] if x["bes_score"] is not None else float("-inf"), reverse=True)
-            return {"status": "ok", "items": items, "storage": "postgres"}
+            return {"status": "ok", "items": items, "storage": "postgres",
+                    "bes_average_buy_source": "wallet_performance.total_sol_spent / buy_transactions" if has_performance else "qualified_wallets.average_buy_size_sol"}
         except psycopg.errors.UndefinedTable:
             return {"status": "schema_pending", "items": [], "storage": "postgres",
                     "message": "SoulWinners schema has not been initialized yet."}
