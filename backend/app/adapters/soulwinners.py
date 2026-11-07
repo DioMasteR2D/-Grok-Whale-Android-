@@ -7,9 +7,10 @@ DB_PATH = os.getenv("SOULWINNERS_DB_PATH", "")
 DATABASE_URL = os.getenv("SOULWINNERS_DATABASE_URL", "")
 
 COLUMNS = """wallet_address, source, roi_pct, median_roi_pct,
-    profit_token_ratio, trade_frequency, roi_per_trade, tier,
-    strategy_bucket, current_balance_sol, total_trades, win_rate,
-    qualified_at, last_alert_at"""
+    profit_token_ratio, trade_frequency, roi_per_trade, x10_ratio, x20_ratio,
+    x50_ratio, x100_ratio, cluster, cluster_label, cluster_name, roi_final,
+    priority_score, tier, strategy_bucket, current_balance_sol, total_trades,
+    win_rate, qualified_at, last_alert_at"""
 ORDER = " ORDER BY priority_score DESC LIMIT "
 
 def initialize_postgres_schema() -> dict:
