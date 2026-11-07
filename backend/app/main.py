@@ -1,30 +1,53 @@
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
-from app.adapters.solscope import fetch_wallet_leaderboard
-from app.adapters.soulwinners import fetch_qualified_wallets
-from app.adapters.atlas import fetch_wallet_flows
+from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
+from app.adapters.soulwinners import fetch_qualified_wallets, DB_PATH
+from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY, ATLAS_SEED_WALLETS
 
-app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.2.0")
+app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.3.0")
 
 class PaperStatus(BaseModel):
     mode: str = "paper"
     live_trading_enabled: bool = False
     note: str = "Simulation only. No transaction signing or order execution."
 
+@app.get("/")
+def root():
+    return {
+        "service": "DioMasteR2D Grok Whale API",
+        "status": "online",
+        "health": "/health",
+        "api_status": "/api/v1/status",
+        "docs": "/docs",
+        "mode": "paper",
+        "live_trading_enabled": False,
+    }
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "grok-whale-api", "time": datetime.now(timezone.utc).isoformat()}
 
-@app.get("/api/v1/status", response_model=PaperStatus)
+@app.get("/api/v1/status")
 def status():
-    return PaperStatus()
+    return {
+        "mode": "paper",
+        "live_trading_enabled": False,
+        "sources": {
+            "solscope_proxy": "configured" if GMGN_PROXY_URL else "missing_config",
+            "soulwinners_database": "configured" if DB_PATH else "missing_config",
+            "atlas_helius": "configured" if HELIUS_API_KEY and ATLAS_SEED_WALLETS else "awaiting_step_3",
+            "atlas_agent": "not_deployed",
+        },
+        "note": "Source configuration status only; live source data is verified by the corresponding endpoint.",
+    }
 
 @app.get("/api/v1/whales")
 async def whales(period: str = Query(default="7d", pattern="^(1d|7d|30d)$"), limit: int = Query(default=100, ge=1, le=500)):
-    solscope, soulwinners = await __import__("asyncio").gather(
+    import asyncio
+    solscope, soulwinners = await asyncio.gather(
         fetch_wallet_leaderboard(period),
-        __import__("asyncio").to_thread(fetch_qualified_wallets, limit),
+        asyncio.to_thread(fetch_qualified_wallets, limit),
     )
     return {"period": period, "sources": {"solscope": solscope, "soulwinners": soulwinners}}
 
