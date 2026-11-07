@@ -101,19 +101,30 @@ def _soulwinners_top10(rows):
     archetypes = ("core alpha", "moonshot", "moonshot hunters", "sniper")
     excluded = ("cex", "market maker", "bridge", "developer", "dev wallet")
     for row in rows:
+        # Only the measured 30-day win_rate is valid for this gate.
+        # profit_token_ratio is a different upstream metric and is not a substitute.
         win_rate = row.get("win_rate")
-        if win_rate is None:
-            win_rate = row.get("profit_token_ratio")
-        trades, roi = row.get("total_trades"), row.get("roi_pct")
+        try:
+            win_rate = float(win_rate)
+        except (TypeError, ValueError):
+            win_rate = None
+        try:
+            trades = int(row.get("total_trades"))
+        except (TypeError, ValueError):
+            trades = 0
+        try:
+            roi = float(row.get("roi_pct"))
+        except (TypeError, ValueError):
+            roi = None
         label = str(row.get("cluster_name") or row.get("cluster_label") or row.get("strategy_bucket") or "").lower()
         source = str(row.get("source") or "").lower()
-        if not isinstance(win_rate, (int, float)) or win_rate < 0.60:
+        if win_rate is None or win_rate < 0.60:
             rejected["win_rate"] += 1
             continue
-        if not isinstance(trades, int) or trades < 15:
+        if trades < 15:
             rejected["trades"] += 1
             continue
-        if not isinstance(roi, (int, float)) or roi < 50:
+        if roi is None or roi < 50:
             rejected["roi"] += 1
             continue
         if not any(name in label for name in archetypes):
@@ -154,7 +165,7 @@ def qualified_top_whales():
         "source": "SoulWinners",
         "items": items,
         "qualification": qualification,
-        "message": "Only source rows meeting the available ROI, win-rate, trade-count and archetype gates are returned. Missing/unsupported exclusion labels cannot be independently verified.",
+        "message": "Only rows with a measured win_rate >= 60%, ROI >= 50%, at least 15 trades, a supported archetype, and a source-computed BES are returned. profit_token_ratio is never substituted for win_rate. Missing exclusion labels cannot be independently verified.",
     }
 
 @app.get("/api/v1/atlas/flows")
