@@ -222,7 +222,7 @@ private fun DashboardScreen() {
         onDismissRequest={showConnectInfo=false},
         title={Text("Phantom connection")},
         text={Text("Native Mobile Wallet Adapter dependency is included. The authorization flow still needs its Activity-result integration and device verification before this can report a connected wallet.")},
-        confirmButton={TextButton(onClick={showConnectInfo=false){Text("OK")}}
+        confirmButton={ TextButton(onClick={ showConnectInfo = false }) { Text("OK") } }
     )
 }
 
