@@ -133,6 +133,26 @@ private fun SessionScreen(onStart:()->Unit) {
     }
 }
 
+private suspend fun apiPost(path:String):JSONObject {
+    return withContext(Dispatchers.IO) {
+        val connection=URL(API_BASE+path).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod="POST"
+            connection.doOutput=true
+            connection.connectTimeout=15000
+            connection.readTimeout=45000
+            connection.setRequestProperty("Accept","application/json")
+            connection.setRequestProperty("Content-Type","application/json")
+            connection.outputStream.use { it.write("{}".toByteArray()) }
+            val code=connection.responseCode
+            val stream=if(code in 200..299) connection.inputStream else connection.errorStream
+            val body=stream.bufferedReader().use{it.readText()}
+            if(code !in 200..299) error("API HTTP "+code+": "+body.take(180))
+            JSONObject(body)
+        } finally { connection.disconnect() }
+    }
+}
+
 private suspend fun api(path:String):JSONObject {
     var lastError:Exception? = null
     for (attempt in 0..2) {
@@ -163,6 +183,7 @@ private suspend fun loadData():AppData = try {
     val status=api("/api/v1/status")
     val src=status.optJSONObject("sources") ?: JSONObject()
     val flow=api("/api/v1/atlas/flows?limit=10")
+    val agent=runCatching { apiPost("/api/v1/atlas/agent/scan?limit=10") }.getOrNull()
     val sig=api("/api/v1/signals?limit=20")
     val top=api("/api/v1/whales/top")
     val arr=sig.optJSONArray("items")
@@ -180,7 +201,13 @@ private suspend fun loadData():AppData = try {
             add(SignalRow(x.optString("mint"),x.optString("bias"),x.optInt("score"),x.optString("action"),x.optInt("wallets_buying"),x.optInt("wallets_selling"),x.optString("confidence")))
         }
     }
-    AppData(online=true,status="LIVE DATA",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=src.optString("atlas_agent","not deployed"),discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows)
+    val agentStatus = when {
+        agent == null -> "scan unavailable"
+        agent.optString("status").isNotBlank() -> agent.optString("status")
+        agent.optJSONArray("alerts") != null -> "scan complete · "+agent.optJSONArray("alerts")!!.length()+" alerts"
+        else -> "scan returned"
+    }
+    AppData(online=true,status="LIVE DATA",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows)
 } catch(e:Exception) { AppData(status="API OFFLINE",error=e.message ?: "Unknown error") }
 
 @Composable
