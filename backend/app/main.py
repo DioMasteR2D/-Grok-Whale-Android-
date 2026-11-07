@@ -11,6 +11,7 @@ import time
 from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
+from app.adapters.atlas_agent import analyze_atlas_flows, ANTHROPIC_API_KEY
 from app.analysis import build_flow_signals
 from app.strategy import STRATEGY, session_status, evaluate_entry
 
@@ -91,9 +92,9 @@ def status():
             "soulwinners_database": db.get("status", "unknown"),
             "atlas_helius": "configured_auto_discovery" if HELIUS_API_KEY and GMGN_PROXY_URL else ("missing_helius_key" if not HELIUS_API_KEY else "missing_solscope_proxy"),
             "flow_analytics": "deterministic_v1",
-            "atlas_agent": "not_deployed",
+            "atlas_agent": "configured" if ANTHROPIC_API_KEY else "missing_anthropic_key",
         },
-        "note": "Whale wallets are discovered automatically. Helius provides raw activity; flow analytics are deterministic heuristics, not an LLM agent.",
+        "note": "Helius provides observed wallet activity; Atlas LLM analysis is available when Anthropic is configured. Safety gates remain independently fail-closed.",
     }
 
 @app.get("/api/v1/whales")
@@ -186,6 +187,16 @@ def qualified_top_whales():
         "qualification": qualification,
         "message": "Only rows with a measured win_rate >= 60%, ROI >= 50%, at least 15 trades, a supported archetype, and a source-computed BES are returned. profit_token_ratio is never substituted for win_rate. Missing exclusion labels cannot be independently verified.",
     }
+
+
+@app.post("/api/v1/atlas/agent/scan")
+async def atlas_agent_scan(limit: int = Query(default=10, ge=1, le=20)):
+    """Run bounded Atlas LLM analysis over current Helius observations."""
+    flows = await get_cached_wallet_flows(limit)
+    top_result = fetch_qualified_wallets(500) if DATABASE_URL else {"status": "not_configured", "items": []}
+    top_items, qualification = _soulwinners_top10(top_result.get("items", [])) if top_result.get("status") == "ok" else ([], {"returned": 0})
+    analysis = await analyze_atlas_flows(flows, top_items)
+    return {**analysis, "source_status": flows.get("status"), "wallet_ranking_status": top_result.get("status"), "wallet_qualification": qualification, "live_trading_enabled": False}
 
 @app.get("/api/v1/atlas/flows")
 async def atlas_flows(limit: int = Query(default=10, ge=1, le=25)):
