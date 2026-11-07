@@ -15,6 +15,8 @@ from app.adapters.atlas_agent import analyze_atlas_flows, ANTHROPIC_API_KEY
 from app.analysis import build_flow_signals
 from app.strategy import STRATEGY, session_status, evaluate_entry
 from app import paper
+from app.adapters.onchain import verify_token
+from app.adapters.prices import fetch_prices
 
 logger = logging.getLogger("grok-whale-api")
 app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.6.0")
@@ -208,6 +210,42 @@ async def atlas_agent_scan(limit: int = Query(default=10, ge=1, le=20)):
 async def atlas_flows(limit: int = Query(default=10, ge=1, le=25)):
     return await get_cached_wallet_flows(limit)
 
+class TokenVerifyRequest(BaseModel):
+    mint: str = Field(min_length=32, max_length=44)
+    lp_mint: str | None = Field(default=None, min_length=32, max_length=44)
+
+@app.post("/api/v1/atlas/token/verify")
+async def atlas_token_verify(payload: TokenVerifyRequest):
+    """Verify mint authority and supplied pool LP supply directly at finalized RPC."""
+    return await verify_token(payload.mint, payload.lp_mint)
+
+@app.get("/api/v1/prices")
+async def token_prices(mints: str = Query(min_length=32, max_length=2200)):
+    requested = [x.strip() for x in mints.split(",") if x.strip()]
+    return await fetch_prices(requested)
+
+@app.get("/api/v1/paper/refresh")
+async def refresh_paper_prices():
+    """Refresh open paper positions from Jupiter Price v3 and enforce paper SL."""
+    portfolio = paper.summary()
+    if portfolio.get("status") != "ok":
+        return {"status":"paper_unavailable","portfolio":portfolio}
+    positions = portfolio.get("open_positions", [])
+    if not positions:
+        return {"status":"ok","updated":[],"message":"No open paper positions."}
+    priced = await fetch_prices([p["mint"] for p in positions])
+    if priced.get("status") != "ok":
+        return {"status":priced.get("status"),"price_status":priced,"updated":[]}
+    marks = {mint:row["usd_price"] for mint,row in priced.get("items",{}).items()
+             if row and isinstance(row.get("usd_price"),(int,float))}
+    if not marks:
+        return {"status":"no_reliable_prices","price_status":priced,"updated":[]}
+    marked = paper.mark_prices(marks)
+    return {"status":marked.get("status"),"provider":"Jupiter Price API v3",
+            "price_status":priced.get("status"),"updated":marked.get("updated",[]),
+            "missing_prices":priced.get("missing_prices",[]),"portfolio":paper.summary(),
+            "live_trading_enabled":False}
+
 @app.get("/api/v1/signals")
 async def signals(limit: int = Query(default=25, ge=1, le=100)):
     flows = await get_cached_wallet_flows(10)
@@ -273,11 +311,13 @@ def execution_readiness():
         "soulwinners_ingestion_verified": False,
         "measured_bes_and_win_rate_available": False,
         "atlas_agent_runtime_deployed": False,
-        "lp_burn_and_mint_revocation_provider": False,
+        "lp_burn_and_mint_revocation_provider": bool(HELIUS_API_KEY or os.getenv("SOLANA_RPC_URL")),
         "six_atlas_entry_gates_verified": False,
         "jupiter_order_preview_available": True,
         "phantom_transaction_signing_and_approval_tested": False,
+        "jupiter_price_v3_configured": bool(os.getenv("JUPITER_API_KEY")),
         "risk_and_exit_engine_persistent": False,
+        "origin_whale_exit_detection_verified": False,
     }
     blockers = [name for name, passed in checks.items() if not passed]
     return {
