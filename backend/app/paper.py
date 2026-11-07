@@ -33,14 +33,14 @@ def summary():
                 row=cur.fetchone()
                 if not row: return {"status":"not_initialized","mode":"paper"}
                 cash,start=row
-                cur.execute("SELECT id,mint,quantity,entry_price,last_price,opened_at FROM paper_positions WHERE status='open' ORDER BY id DESC")
+                cur.execute("SELECT id,mint,quantity,entry_price,last_price,opened_at,origin_wallet FROM paper_positions WHERE status='open' ORDER BY id DESC")
                 pos=cur.fetchall()
                 cur.execute("SELECT COALESCE(SUM(realized_pnl),0) FROM paper_positions WHERE status='closed'")
                 realized=float(cur.fetchone()[0])
                 items=[]; unreal=0.0
-                for pid,mint,q,entry,last,opened in pos:
+                for pid,mint,q,entry,last,opened,origin_wallet in pos:
                     pnl=(last-entry)*q; unreal+=pnl
-                    items.append({"id":pid,"mint":mint,"quantity":q,"entry_price":entry,"last_price":last,"market_value":q*last,"unrealized_pnl":pnl,"opened_at":opened.isoformat() if opened else None})
+                    items.append({"id":pid,"mint":mint,"quantity":q,"entry_price":entry,"last_price":last,"market_value":q*last,"unrealized_pnl":pnl,"opened_at":opened.isoformat() if opened else None,"origin_wallet":origin_wallet})
                 return {"status":"ok","mode":"paper","quote_currency":"USD","starting_cash":start,"cash":cash,"open_positions":items,"realized_pnl":realized,"unrealized_pnl":unreal,"equity":cash+sum(x["market_value"] for x in items),"live_trading_enabled":False}
     except Exception as e:
         return {"status":"not_configured" if str(e)=="persistent_database_not_configured" else "unavailable","mode":"paper","open_positions":[],"message":"Persistent paper database is not available.","live_trading_enabled":False}
