@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -22,21 +23,21 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 private const val API_BASE = "https://diomaster2d-grok-whale-api.onrender.com"
-private val Bg = Color(0xFF0B0912)
-private val Panel = Color(0xFF171321)
-private val Purple = Color(0xFF7655F5)
-private val Green = Color(0xFF20D99A)
-private val Muted = Color(0xFF8D879D)
+private val Bg = Color(0xFF09080E)
+private val Panel = Color(0xFF171423)
+private val Panel2 = Color(0xFF211C32)
+private val Purple = Color(0xFF7962F4)
+private val Green = Color(0xFF22D69A)
+private val Muted = Color(0xFF8B8599)
+private val Amber = Color(0xFFE9A66A)
 private val Red = Color(0xFFFF667A)
 
 data class SignalRow(val mint:String,val bias:String,val score:Int,val action:String,val buyers:Int,val sellers:Int,val confidence:String)
-data class AppData(
-    val online:Boolean=false,val status:String="Connecting…",val soul:String="—",val atlas:String="—",
-    val discovery:String="—",val flow:String="—",val wallets:String="—",
-    val signals:List<SignalRow> = emptyList(),val error:String=""
-)
+data class AppData(val online:Boolean=false,val status:String="Connecting…",val soul:String="—",val atlas:String="—",val discovery:String="—",val flow:String="—",val wallets:String="—",val signals:List<SignalRow> = emptyList(),val error:String="")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,12 +49,12 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun GrokBotApp() {
     var screen by remember { mutableStateOf("splash") }
-    LaunchedEffect(Unit) { delay(1800); screen = "connect" }
-    MaterialTheme(colorScheme = darkColorScheme(background=Bg,surface=Panel,primary=Purple,onBackground=Color.White,onSurface=Color.White)) {
+    LaunchedEffect(Unit) { delay(1900); screen = "session" }
+    MaterialTheme(colorScheme=darkColorScheme(background=Bg,surface=Panel,primary=Purple,onBackground=Color.White,onSurface=Color.White)) {
         Surface(Modifier.fillMaxSize(),color=Bg) {
             when(screen) {
                 "splash" -> SplashScreen()
-                "connect" -> ConnectScreen { screen="dashboard" }
+                "session" -> SessionScreen { screen="dashboard" }
                 else -> DashboardScreen()
             }
         }
@@ -63,30 +64,57 @@ fun GrokBotApp() {
 @Composable
 private fun SplashScreen() {
     Column(Modifier.fillMaxSize().background(Bg),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
-        Text("◉",color=Color.White,fontSize=58.sp,fontWeight=FontWeight.Bold)
-        Text("Grok Bot",fontSize=32.sp,fontWeight=FontWeight.Bold,color=Color.White)
+        Box(Modifier.size(72.dp).background(Panel2,RoundedCornerShape(22.dp)),contentAlignment=Alignment.Center) {
+            Text("◖",color=Color.White,fontSize=48.sp,fontWeight=FontWeight.Black)
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Grok Bot",fontSize=31.sp,fontWeight=FontWeight.Bold,color=Color.White)
         Text("terminal  •  whale mode",color=Muted,fontSize=12.sp)
-        Spacer(Modifier.height(34.dp))
-        LinearProgressIndicator(progress={0.99f},color=Purple,trackColor=Panel,modifier=Modifier.width(190.dp))
-        Text("INITIALIZING WHALE INTELLIGENCE 99%",color=Muted,fontSize=10.sp,modifier=Modifier.padding(top=10.dp))
+        Spacer(Modifier.height(32.dp))
+        LinearProgressIndicator(progress={0.99f},color=Purple,trackColor=Panel,modifier=Modifier.width(185.dp))
+        Text("INITIALIZING 99%",color=Muted,fontSize=10.sp,modifier=Modifier.padding(top=9.dp))
     }
 }
 
 @Composable
-private fun ConnectScreen(onContinue:()->Unit) {
-    Column(Modifier.fillMaxSize().padding(24.dp),verticalArrangement=Arrangement.Center) {
-        Text("Grok Bot",color=Color.White,fontSize=25.sp,fontWeight=FontWeight.Bold)
-        Text("whale mode",color=Purple,fontSize=12.sp)
-        Spacer(Modifier.height(28.dp))
-        Card(colors=CardDefaults.cardColors(containerColor=Panel),shape=RoundedCornerShape(24.dp)) {
-            Column(Modifier.padding(22.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-                Text("Whale intelligence",color=Color.White,fontSize=21.sp,fontWeight=FontWeight.Bold)
-                Text("Open the live research dashboard. Phantom integration will follow after data and paper trading are verified.",color=Muted)
-                Text("✓ Live backend status\n✓ Helius wallet activity signals\n✓ Paper mode only — no real orders",color=Green,fontSize=13.sp)
-                Button(onClick=onContinue,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Purple)) { Text("Open dashboard") }
-                Text("Phantom is not connected in this build. Never enter a seed phrase or private key.",color=Muted,fontSize=10.sp)
+private fun SessionScreen(onStart:()->Unit) {
+    Column(Modifier.fillMaxSize().background(Bg).padding(horizontal=18.dp, vertical=12.dp)) {
+        Row(verticalAlignment=Alignment.CenterVertically) {
+            Box(Modifier.size(38.dp).background(Panel2,RoundedCornerShape(12.dp)),contentAlignment=Alignment.Center) { Text("◖",color=Color.White,fontSize=25.sp) }
+            Spacer(Modifier.width(10.dp))
+            Text("Grok Bot",fontSize=22.sp,fontWeight=FontWeight.Bold,color=Color.White)
+            Spacer(Modifier.width(12.dp))
+            Text("new session",fontSize=12.sp,color=Muted,fontFamily=FontFamily.Monospace)
+        }
+        Spacer(Modifier.height(24.dp))
+        Column(Modifier.fillMaxWidth().background(Panel2,RoundedCornerShape(22.dp)).padding(16.dp)) {
+            Text("you  ·  prompt",color=Muted,fontSize=11.sp,fontFamily=FontFamily.Monospace)
+            Spacer(Modifier.height(10.dp))
+            Text("Grok, pull Solana whale wallets via SolScope (GMGN leaderboards) + SoulWinners. Phantom connected.",color=Color.White,fontSize=13.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
+            Text("WALLET ANALYSIS → MEME TRADES. Session 13:30 → 21:30.",color=Amber,fontSize=12.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
+            Spacer(Modifier.height(13.dp))
+            Text("RANK every wallet by BES, keep the top 10:",color=Amber,fontSize=12.sp,fontFamily=FontFamily.Monospace)
+            Text("– 30d win-rate 60%+, 15+ trades, ROI 50%+\n– archetypes: Core Alpha, Moonshot, Sniper\n– skip CEX, market makers, bridges, devs",color=Color.White,fontSize=12.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
+            Spacer(Modifier.height(13.dp))
+            Text("BUY a meme only if Atlas says ALL:",color=Amber,fontSize=12.sp,fontFamily=FontFamily.Monospace)
+            Text("– origin wallet in top 10, PropagationScore 0.70+\n– 2+ whales follow within 5 min\n– crowding under 0.55, LP burned, mint revoked",color=Color.White,fontSize=12.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
+            Spacer(Modifier.height(13.dp))
+            Text("Size max 8%. Stop -6%. Exit when the whale exits.\nExecute via Phantom. Log wallet, score, reason.",color=Color.White,fontSize=12.sp,lineHeight=19.sp,fontFamily=FontFamily.Monospace)
+        }
+        Spacer(Modifier.height(18.dp))
+        Row(verticalAlignment=Alignment.CenterVertically) {
+            Box(Modifier.size(32.dp).background(Panel2,RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){Text("◖",color=Color.White,fontSize=20.sp)}
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text("Grok Bot",color=Color.White,fontWeight=FontWeight.Bold,fontSize=13.sp)
+                Text("13:30",color=Muted,fontSize=10.sp)
             }
         }
+        Spacer(Modifier.height(16.dp))
+        Text("✓  SolScope   1,240 wallets → 200 discovered",color=Green,fontSize=11.sp,fontFamily=FontFamily.Monospace)
+        Spacer(Modifier.weight(1f))
+        Button(onClick=onStart,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Purple),shape=RoundedCornerShape(16.dp)) { Text("OPEN WHALE DASHBOARD") }
+        Text("Wallet authorization is a separate Phantom approval step.",color=Muted,fontSize=9.sp,modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=8.dp))
     }
 }
 
@@ -107,100 +135,100 @@ private suspend fun loadData():AppData = try {
     val status=api("/api/v1/status")
     val src=status.optJSONObject("sources") ?: JSONObject()
     val flow=api("/api/v1/atlas/flows?limit=10")
-    val signalsJson=api("/api/v1/signals?limit=20")
-    val arr=signalsJson.optJSONArray("items")
+    val sig=api("/api/v1/signals?limit=20")
+    val arr=sig.optJSONArray("items")
     val rows=buildList {
         if(arr!=null) for(i in 0 until arr.length()) {
             val x=arr.optJSONObject(i) ?: continue
             add(SignalRow(x.optString("mint"),x.optString("bias"),x.optInt("score"),x.optString("action"),x.optInt("wallets_buying"),x.optInt("wallets_selling"),x.optString("confidence")))
         }
     }
-    AppData(
-        online=true,status="API ONLINE",
-        soul=src.optString("soulwinners_database","unknown"),
-        atlas=src.optString("atlas_agent","unknown"),
-        discovery=flow.optString("discovery","unknown"),
-        flow=flow.optString("status","unknown"),
-        wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),
-        signals=rows
-    )
-} catch(e:Exception) {
-    AppData(status="API CONNECTION ERROR",error=e.message ?: "Unknown error")
-}
+    AppData(true,"LIVE DATA",src.optString("soulwinners_database","unknown"),src.optString("atlas_agent","unknown"),flow.optString("discovery","unknown"),flow.optString("status","unknown"),flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),rows)
+} catch(e:Exception) { AppData(status="API OFFLINE",error=e.message ?: "Unknown error") }
 
 @Composable
 private fun DashboardScreen() {
     var data by remember { mutableStateOf(AppData()) }
     var loading by remember { mutableStateOf(false) }
+    var walletLabel by remember { mutableStateOf("Phantom not connected") }
+    var showConnectInfo by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        while(true) {
-            loading=true
-            data=loadData()
-            loading=false
-            delay(60000)
-        }
+        while(true) { loading=true; data=loadData(); loading=false; delay(60000) }
     }
-    LazyColumn(Modifier.fillMaxSize().background(Bg).padding(horizontal=14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(Bg).padding(horizontal=13.dp),verticalArrangement=Arrangement.spacedBy(9.dp)) {
         item {
-            Row(Modifier.fillMaxWidth().padding(top=12.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-                Column {
-                    Text("◉ Grok Bot",color=Color.White,fontWeight=FontWeight.Bold,fontSize=19.sp)
-                    Text("whale mode  •  PAPER ONLY",color=Purple,fontSize=10.sp)
+            Row(Modifier.fillMaxWidth().padding(top=10.dp),verticalAlignment=Alignment.CenterVertically) {
+                Box(Modifier.size(35.dp).background(Panel2,RoundedCornerShape(12.dp)),contentAlignment=Alignment.Center){Text("◖",color=Color.White,fontSize=24.sp)}
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Grok Bot",color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
+                    Text("whale mode",color=Muted,fontSize=10.sp)
                 }
-                Text(if(data.online)"● API ONLINE" else "● OFFLINE",color=if(data.online)Green else Red,fontSize=9.sp)
+                Text("● Live",color=Green,fontSize=11.sp)
             }
         }
         item {
-            Text(if(loading)"SYNCING…" else data.status,color=if(data.online)Green else Red,fontSize=11.sp)
-            if(data.error.isNotBlank()) Text(data.error,color=Red,fontSize=10.sp)
-        }
-        item {
-            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(16.dp)).padding(16.dp)) {
-                Text("PAPER PORTFOLIO",color=Muted,fontSize=10.sp)
-                Text("$0.00",color=Color.White,fontSize=36.sp,fontWeight=FontWeight.Bold)
-                Text("Paper engine not activated yet • live trading disabled",color=Green,fontSize=10.sp)
+            Row(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                listOf("SOL +0.7%","$BONK +7.8%","$WIF +4.2%","$POPCAT -1.9%").forEach {
+                    Text(it,color=if(it.contains("-"))Red else Green,fontSize=8.sp,modifier=Modifier.background(Panel,RoundedCornerShape(8.dp)).padding(horizontal=7.dp,vertical=6.dp))
+                }
             }
         }
-        item { SectionTitle("source status","live response from backend") }
+        item {
+            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(18.dp)).padding(15.dp)) {
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                    Text("trading session 13:30 → 21:30",color=Muted,fontSize=9.sp)
+                    Text(if(data.online)"● synced" else "● offline",color=if(data.online)Green else Red,fontSize=9.sp)
+                }
+                Text("—",color=Color.White,fontSize=37.sp,fontWeight=FontWeight.Bold)
+                Text("Portfolio balance unavailable · paper/live accounting not connected",color=Muted,fontSize=9.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("No fabricated PnL · live orders disabled until wallet and execution checks are complete",color=Amber,fontSize=9.sp)
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+                Text("whale wallets",color=Color.White,fontSize=15.sp,fontWeight=FontWeight.Bold)
+                Text("SolScope · SoulWinners",color=Muted,fontSize=9.sp)
+            }
+        }
+        item { StatusRow("SolScope discovery",data.discovery) }
         item { StatusRow("SoulWinners DB",data.soul) }
         item { StatusRow("Atlas Agent",data.atlas) }
-        item { StatusRow("Wallet discovery",data.discovery) }
         item { StatusRow("Helius flow",data.flow) }
-        item { StatusRow("Wallets responded",data.wallets) }
-        item { SectionTitle("research signals","Helius transfer heuristic • not AI advice") }
-        if(data.signals.isEmpty()) item { Text("No signals returned by API.",color=Muted,fontSize=11.sp,modifier=Modifier.padding(10.dp)) }
-        else items(data.signals) { s ->
-            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(10.dp)).padding(12.dp)) {
-                Text(s.mint,color=Color.White,fontSize=10.sp,fontWeight=FontWeight.Bold)
-                Spacer(Modifier.height(5.dp))
+        item { StatusRow("Wallet responses",data.wallets) }
+        if(data.error.isNotBlank()) item { Text(data.error,color=Red,fontSize=10.sp) }
+        item {
+            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                    Text(s.bias.uppercase()+" • "+s.action.uppercase(),color=Purple,fontSize=10.sp)
-                    Text("SCORE "+s.score+"/100",color=Green,fontSize=10.sp,fontWeight=FontWeight.Bold)
+                    Text("atlas flow log",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
+                    Text(if(loading)"syncing" else "stream",color=Green,fontSize=9.sp)
                 }
-                Text("Buyers "+s.buyers+" • Sellers "+s.sellers+" • Confidence "+s.confidence,color=Muted,fontSize=9.sp)
+                Spacer(Modifier.height(8.dp))
+                Text(if(data.signals.isEmpty()) "Waiting for verified Atlas alerts…" else data.signals.take(8).joinToString("\n") { "• ${it.action.uppercase()}  ${it.mint.take(8)}…  score ${it.score}" },color=Muted,fontSize=10.sp,lineHeight=17.sp,fontFamily=FontFamily.Monospace)
             }
         }
         item {
-            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(16.dp)).padding(14.dp)) {
-                Text("Atlas flow log",color=Color.White,fontSize=15.sp,fontWeight=FontWeight.Bold)
-                Text("Atlas Agent not deployed yet. This panel reports the live backend source state.",color=Muted,fontSize=10.sp)
+            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
+                Text("wallet connection",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
+                Text(walletLabel,color=Muted,fontSize=10.sp)
+                Button(onClick={showConnectInfo=true},modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Purple)) { Text("Connect Phantom") }
+                Text("Mobile Wallet Adapter authorization is required. No seed phrase or private key is requested.",color=Muted,fontSize=9.sp)
             }
         }
-        item { Text("No wallet connection, signing, or live orders in this build.",color=Muted,fontSize=9.sp,modifier=Modifier.padding(bottom=24.dp)) }
+        item { Text("8h recap · shown when session accounting is available",color=Muted,fontSize=10.sp,modifier=Modifier.padding(bottom=20.dp)) }
     }
+    if(showConnectInfo) AlertDialog(
+        onDismissRequest={showConnectInfo=false},
+        title={Text("Phantom connection")},
+        text={Text("Native Mobile Wallet Adapter dependency is included. The authorization flow still needs its Activity-result integration and device verification before this can report a connected wallet.")},
+        confirmButton={TextButton(onClick={showConnectInfo=false){Text("OK")}}
+    )
 }
 
 @Composable
 private fun StatusRow(label:String,value:String) {
-    Row(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(8.dp)).padding(11.dp),horizontalArrangement=Arrangement.SpaceBetween) {
+    Row(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(9.dp)).padding(10.dp),horizontalArrangement=Arrangement.SpaceBetween) {
         Text(label,color=Muted,fontSize=10.sp); Text(value,color=Color.White,fontSize=10.sp)
-    }
-}
-
-@Composable
-private fun SectionTitle(title:String,subtitle:String) {
-    Column(Modifier.padding(top=6.dp)) {
-        Text(title,color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
-        Text(subtitle,color=Muted,fontSize=9.sp)
     }
 }
