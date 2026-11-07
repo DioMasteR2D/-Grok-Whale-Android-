@@ -10,7 +10,7 @@ COLUMNS = """wallet_address, source, roi_pct, median_roi_pct,
     profit_token_ratio, trade_frequency, roi_per_trade, x10_ratio, x20_ratio,
     x50_ratio, x100_ratio, cluster, cluster_label, cluster_name, roi_final,
     priority_score, tier, strategy_bucket, current_balance_sol, total_trades,
-    win_rate, qualified_at, last_alert_at"""
+    win_rate, average_buy_size_sol, bes_score, qualified_at, last_alert_at"""
 ORDER = " ORDER BY priority_score DESC LIMIT "
 
 def initialize_postgres_schema() -> dict:
@@ -42,10 +42,15 @@ def initialize_postgres_schema() -> dict:
         current_balance_sol DOUBLE PRECISION,
         total_trades INTEGER,
         win_rate DOUBLE PRECISION,
+        average_buy_size_sol DOUBLE PRECISION,
+        bes_score DOUBLE PRECISION,
         qualified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_alert_at TIMESTAMP
     );
+    ALTER TABLE qualified_wallets ADD COLUMN IF NOT EXISTS average_buy_size_sol DOUBLE PRECISION;
+    ALTER TABLE qualified_wallets ADD COLUMN IF NOT EXISTS bes_score DOUBLE PRECISION;
     CREATE INDEX IF NOT EXISTS idx_qualified_priority ON qualified_wallets(priority_score DESC);
+    CREATE INDEX IF NOT EXISTS idx_qualified_bes ON qualified_wallets(bes_score DESC);
     CREATE INDEX IF NOT EXISTS idx_qualified_tier ON qualified_wallets(tier);
     """
     try:
@@ -68,7 +73,22 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
                     cur.execute("SET TRANSACTION READ ONLY")
                     cur.execute("SELECT " + COLUMNS + " FROM qualified_wallets" + ORDER + "%s", (count,))
                     rows = cur.fetchall()
-            return {"status": "ok", "items": rows, "storage": "postgres"}
+            items = []
+            for row in rows:
+                item = dict(row)
+                avg_buy = item.get("average_buy_size_sol")
+                roi_trade = item.get("roi_per_trade")
+                win_rate = item.get("win_rate")
+                if win_rate is None:
+                    win_rate = item.get("profit_token_ratio")
+                frequency = item.get("trade_frequency")
+                if all(isinstance(v, (int, float)) for v in (avg_buy, roi_trade, win_rate, frequency)) and avg_buy > 0:
+                    item["bes_score"] = (roi_trade * win_rate * frequency) / avg_buy
+                else:
+                    item["bes_score"] = None
+                items.append(item)
+            items.sort(key=lambda x: x["bes_score"] if x["bes_score"] is not None else float("-inf"), reverse=True)
+            return {"status": "ok", "items": items, "storage": "postgres"}
         except psycopg.errors.UndefinedTable:
             return {"status": "schema_pending", "items": [], "storage": "postgres",
                     "message": "SoulWinners schema has not been initialized yet."}
@@ -86,7 +106,22 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute("SELECT " + COLUMNS + " FROM qualified_wallets" + ORDER + "?", (count,)).fetchall()
-            return {"status": "ok", "items": [dict(row) for row in rows], "storage": "sqlite"}
+            items = []
+            for row in rows:
+                item = dict(row)
+                avg_buy = item.get("average_buy_size_sol")
+                roi_trade = item.get("roi_per_trade")
+                win_rate = item.get("win_rate")
+                if win_rate is None:
+                    win_rate = item.get("profit_token_ratio")
+                frequency = item.get("trade_frequency")
+                if all(isinstance(v, (int, float)) for v in (avg_buy, roi_trade, win_rate, frequency)) and avg_buy > 0:
+                    item["bes_score"] = (roi_trade * win_rate * frequency) / avg_buy
+                else:
+                    item["bes_score"] = None
+                items.append(item)
+            items.sort(key=lambda x: x["bes_score"] if x["bes_score"] is not None else float("-inf"), reverse=True)
+            return {"status": "ok", "items": items, "storage": "sqlite"}
         finally:
             conn.close()
     except sqlite3.Error:
