@@ -44,7 +44,7 @@ private val Red = Color(0xFFFF667A)
 
 data class SignalRow(val mint:String,val bias:String,val score:Int,val action:String,val buyers:Int,val sellers:Int,val confidence:String)
 data class WalletRow(val address:String,val archetype:String,val roi:Double,val winRate:Double,val trades:Int,val score:Double)
-data class AppData(val online:Boolean=false,val status:String="Connecting…",val soul:String="—",val atlas:String="—",val discovery:String="—",val flow:String="—",val wallets:String="—",val signals:List<SignalRow> = emptyList(),val topWhales:List<WalletRow> = emptyList(),val error:String="")
+data class AppData(val online:Boolean=false,val status:String="Connecting…",val soul:String="—",val atlas:String="—",val discovery:String="—",val flow:String="—",val wallets:String="—",val signals:List<SignalRow> = emptyList(),val topWhales:List<WalletRow> = emptyList(),val readiness:String="Checking execution safety…",val blockers:List<String> = emptyList(),val paperSummary:String="Paper portfolio unavailable",val error:String="")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -186,6 +186,8 @@ private suspend fun loadData():AppData = try {
     val agent=runCatching { apiPost("/api/v1/atlas/agent/scan?limit=10") }.getOrNull()
     val sig=api("/api/v1/signals?limit=20")
     val top=api("/api/v1/whales/top")
+    val readiness=api("/api/v1/execution/readiness")
+    val paper=api("/api/v1/paper-portfolio")
     val arr=sig.optJSONArray("items")
     val whaleArray=top.optJSONArray("items")
     val whaleRows=buildList {
@@ -207,7 +209,7 @@ private suspend fun loadData():AppData = try {
         agent.optJSONArray("alerts") != null -> "scan complete · "+agent.optJSONArray("alerts")!!.length()+" alerts"
         else -> "scan returned"
     }
-    AppData(online=true,status="LIVE DATA",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows)
+    AppData(online=true,status="LIVE DATA",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows,readiness=if(readiness.optBoolean("ready_for_live_execution")) "All readiness checks passed" else "LIVE EXECUTION BLOCKED",blockers=buildList { val b=readiness.optJSONArray("blockers"); if(b!=null) for(i in 0 until b.length()) add(b.optString(i)) },paperSummary="Cash $"+paper.optDouble("cash",0.0)+" · Open "+(paper.optJSONArray("open_positions")?.length() ?: 0)+" · Realized PnL $"+paper.optDouble("realized_pnl",0.0))
 } catch(e:Exception) { AppData(status="API OFFLINE",error=e.message ?: "Unknown error") }
 
 @Composable
@@ -255,6 +257,21 @@ private fun DashboardScreen(walletSender: ActivityResultSender, walletAdapter: M
         item { StatusRow("Atlas Agent",data.atlas) }
         item { StatusRow("Helius flow",data.flow) }
         item { StatusRow("Wallet responses",data.wallets) }
+        item {
+            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
+                Text("EXECUTION SAFETY",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
+                Text(data.readiness,color=Amber,fontSize=11.sp,fontWeight=FontWeight.Bold)
+                if(data.blockers.isNotEmpty()) Text(data.blockers.joinToString("\n") { "• "+it },color=Muted,fontSize=9.sp,lineHeight=15.sp)
+                Text("LIVE ORDERS STAY DISABLED · Phantom approval required for every transaction",color=Red,fontSize=9.sp)
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
+                Text("PAPER PORTFOLIO",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
+                Text(data.paperSummary,color=Muted,fontSize=10.sp)
+                Text("Simulation data only; no real SOL or tokens are moved.",color=Amber,fontSize=9.sp)
+            }
+        }
         item {
             Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
                 Text("SOULWINNERS · TOP 10",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
