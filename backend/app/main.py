@@ -91,7 +91,7 @@ def health():
 
 @app.get("/api/v1/status")
 def status():
-    db = fetch_qualified_wallets(1) if DATABASE_URL else {"status": "not_configured"}
+    db = fetch_qualified_wallets(1) if (DATABASE_URL or DB_PATH) else {"status": "not_configured"}
     return {
         "mode": "paper",
         "live_trading_enabled": False,
@@ -211,7 +211,7 @@ async def atlas_agent_scan(limit: int = Query(default=10, ge=1, le=20)):
             "live_trading_enabled": False,
         }
     qualified_addresses = [row["wallet_address"] for row in top_items]
-    flows = await fetch_wallet_flows(limit=min(limit, len(qualified_addresses)), wallet_addresses=qualified_addresses)
+    flows = await fetch_wallet_flows(limit=25, wallet_addresses=qualified_addresses)
     deterministic = build_atlas_propagation(flows, top_items, window_seconds=300)
     analysis = await analyze_atlas_flows(flows, top_items)
     return {
