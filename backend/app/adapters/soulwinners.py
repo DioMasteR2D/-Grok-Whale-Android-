@@ -119,10 +119,10 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
             items.sort(key=lambda x: x["bes_score"] if x["bes_score"] is not None else float("-inf"), reverse=True)
             return {"status": "ok", "items": items, "storage": "postgres",
                     "bes_average_buy_source": "wallet_performance.total_sol_spent / buy_transactions" if has_performance else "qualified_wallets.average_buy_size_sol"}
-        except psycopg.errors.UndefinedTable:
-            return {"status": "schema_pending", "items": [], "storage": "postgres",
-                    "message": "SoulWinners schema has not been initialized yet."}
         except Exception as exc:
+            if getattr(exc, "sqlstate", None) == "42P01":
+                return {"status": "schema_pending", "items": [], "storage": "postgres",
+                        "message": "SoulWinners schema has not been initialized yet."}
             import logging
             logging.getLogger("grok-whale-api").warning(
                 "SoulWinners PostgreSQL query failed (%s)", type(exc).__name__
