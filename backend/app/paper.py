@@ -18,11 +18,12 @@ def initialize():
             CREATE TABLE IF NOT EXISTS paper_positions(
             id BIGSERIAL PRIMARY KEY, mint TEXT NOT NULL, quantity DOUBLE PRECISION NOT NULL,
             entry_price DOUBLE PRECISION NOT NULL, last_price DOUBLE PRECISION NOT NULL,
-            status TEXT NOT NULL DEFAULT 'open', opened_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            status TEXT NOT NULL DEFAULT 'open', origin_wallet TEXT, opened_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
             closed_at TIMESTAMPTZ, realized_pnl DOUBLE PRECISION NOT NULL DEFAULT 0);
             CREATE INDEX IF NOT EXISTS idx_paper_open ON paper_positions(status);
             INSERT INTO paper_portfolio(id,starting_cash,cash) VALUES(1,1000,1000)
-            ON CONFLICT(id) DO NOTHING;""")
+            ON CONFLICT(id) DO NOTHING;
+            ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS origin_wallet TEXT;""")
 
 def summary():
     try:
@@ -44,7 +45,7 @@ def summary():
     except Exception as e:
         return {"status":"not_configured" if str(e)=="persistent_database_not_configured" else "unavailable","mode":"paper","open_positions":[],"message":"Persistent paper database is not available.","live_trading_enabled":False}
 
-def buy(mint,usd,price):
+def buy(mint,usd,price,origin_wallet=None):
     if not isinstance(mint,str) or not 32<=len(mint)<=44 or not (0<usd<1e5 and 0<price<1e15):
         return {"status":"rejected","message":"Invalid mint, USD amount or price."}
     try:
@@ -61,8 +62,8 @@ def buy(mint,usd,price):
                 if cur.fetchone(): return {"status":"rejected","message":"Position already open for this mint."}
                 q=usd/price
                 cur.execute("UPDATE paper_portfolio SET cash=cash-%s WHERE id=1",(usd,))
-                cur.execute("INSERT INTO paper_positions(mint,quantity,entry_price,last_price) VALUES(%s,%s,%s,%s) RETURNING id",(mint,q,price,price))
-                return {"status":"opened","mode":"paper","position_id":cur.fetchone()[0],"mint":mint,"quantity":q,"invested_usd":usd,"live_trading_enabled":False}
+                cur.execute("INSERT INTO paper_positions(mint,quantity,entry_price,last_price,origin_wallet) VALUES(%s,%s,%s,%s,%s) RETURNING id",(mint,q,price,price,origin_wallet))
+                return {"status":"opened","mode":"paper","position_id":cur.fetchone()[0],"mint":mint,"quantity":q,"invested_usd":usd,"origin_wallet":origin_wallet,"live_trading_enabled":False}
     except Exception:
         return {"status":"unavailable","message":"Persistent paper database is not available.","live_trading_enabled":False}
 
