@@ -225,7 +225,8 @@ private fun DashboardScreen(walletSender: ActivityResultSender, walletAdapter: M
                 } else {
                     data.topWhales.forEachIndexed { index,w ->
                         Text("${index+1}. ${w.address.take(5)}…${w.address.takeLast(5)}  ${w.archetype}",color=Color.White,fontSize=10.sp)
-                        Text("ROI ${"%.1f".format(w.roi)}% · Win ${(w.winRate*100).toInt()}% · ${w.trades} trades · BES ${"%.4f".format(w.score)}",color=Muted,fontSize=9.sp)
+                        val winText = if (w.winRate.isFinite()) "${"%.1f".format(w.winRate * 100)}%" else "N/A"
+                        Text("ROI ${"%.1f".format(w.roi)}% · Win $winText · ${w.trades} trades · BES ${"%.4f".format(w.score)}",color=Muted,fontSize=9.sp)
                         Spacer(Modifier.height(5.dp))
                     }
                 }
