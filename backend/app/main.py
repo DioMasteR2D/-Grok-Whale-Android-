@@ -8,6 +8,7 @@ from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
 from app.analysis import build_flow_signals
+from app.strategy import STRATEGY, session_status, evaluate_entry
 
 logger = logging.getLogger("grok-whale-api")
 app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.6.0")
@@ -99,3 +100,17 @@ def paper_portfolio():
     return {"mode": "paper", "quote_currency": "USD", "cash": 0.0,
             "open_positions": [], "realized_pnl": 0.0, "unrealized_pnl": 0.0,
             "live_trading_enabled": False}
+
+@app.get("/api/v1/strategy")
+def strategy_config():
+    return {
+        "strategy": STRATEGY,
+        "session": session_status(),
+        "live_trading_enabled": False,
+    }
+
+@app.post("/api/v1/strategy/evaluate")
+def strategy_evaluate(payload: dict):
+    # Missing evidence fails closed. This endpoint evaluates eligibility only;
+    # it does not create a paper or live order.
+    return evaluate_entry(payload)
