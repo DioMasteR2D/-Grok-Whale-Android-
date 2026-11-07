@@ -7,7 +7,7 @@
         </intent>
     </queries>
     <uses-permission android:name="android.permission.INTERNET" />
-    <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="DioMasteR2D – Grok Bot" android:usesCleartextTraffic="false">
+    <application android:icon="@drawable/grok_bot_icon" android:roundIcon="@drawable/grok_bot_icon" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="DioMasteR2D – Grok Bot" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
