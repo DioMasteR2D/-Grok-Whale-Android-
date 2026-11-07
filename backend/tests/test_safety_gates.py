@@ -93,3 +93,15 @@ def test_atlas_propagation_ignores_non_swap_and_unqualified_wallets():
     ]}
     result = build_atlas_propagation(flows, [{"wallet_address": "wallet0"}])
     assert result["items"] == []
+
+
+def test_atlas_propagation_requires_fee_payer_wallet_identity():
+    wallets = [{"wallet_address": f"wallet{i}"} for i in range(3)]
+    flows = {"status": "ok", "items": [
+        {"wallet_address": f"wallet{i}", "transactions": [
+            {"type": "SWAP", "fee_payer": "someone-else", "timestamp": 1000+i*10,
+             "token_transfers": [{"mint": "mintB", "fromUserAccount": "pool",
+                                  "toUserAccount": f"wallet{i}", "tokenAmount": 100}]}
+        ]} for i in range(3)
+    ]}
+    assert build_atlas_propagation(flows, wallets)["items"] == []
