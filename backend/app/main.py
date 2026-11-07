@@ -233,6 +233,47 @@ async def refresh_paper_prices():
     positions = portfolio.get("open_positions", [])
     if not positions:
         return {"status":"ok","updated":[],"message":"No open paper positions."}
+    # Close a whale-linked paper position only on an observed Helius SWAP
+    # with an outgoing transfer of the exact token mint from the origin wallet.
+    whale_exits = []
+    if HELIUS_API_KEY:
+        async with httpx.AsyncClient(timeout=15) as client:
+            for position in positions:
+                origin = position.get("origin_wallet")
+                if not origin:
+                    continue
+                try:
+                    response = await client.get(
+                        "https://api.helius.xyz/v0/addresses/" + origin + "/transactions",
+                        params={"api-key":HELIUS_API_KEY,"limit":25}
+                    )
+                    response.raise_for_status()
+                    txs = response.json()
+                    for tx in txs if isinstance(txs,list) else []:
+                        if str(tx.get("type","")).upper() != "SWAP":
+                            continue
+                        outgoing = any(
+                            transfer.get("mint") == position["mint"] and
+                            transfer.get("fromUserAccount") == origin
+                            for transfer in (tx.get("tokenTransfers") or [])
+                            if isinstance(transfer,dict)
+                        )
+                        if outgoing:
+                            whale_exits.append({"position_id":position["id"],"mint":position["mint"],
+                                                "origin_wallet":origin,"signature":tx.get("signature")})
+                            break
+                except httpx.HTTPError:
+                    continue
+    closed = []
+    for event in whale_exits:
+        result = paper.close(event["position_id"])
+        if result.get("status") == "closed":
+            closed.append({**event,"paper_close":result})
+    portfolio = paper.summary()
+    positions = portfolio.get("open_positions", [])
+    if not positions:
+        return {"status":"ok","whale_exits":closed,"updated":[],
+                "message":"Whale exits processed; no open paper positions remain."}
     priced = await fetch_prices([p["mint"] for p in positions])
     if priced.get("status") != "ok":
         return {"status":priced.get("status"),"price_status":priced,"updated":[]}
@@ -243,7 +284,7 @@ async def refresh_paper_prices():
     marked = paper.mark_prices(marks)
     return {"status":marked.get("status"),"provider":"Jupiter Price API v3",
             "price_status":priced.get("status"),"updated":marked.get("updated",[]),
-            "missing_prices":priced.get("missing_prices",[]),"portfolio":paper.summary(),
+            "missing_prices":priced.get("missing_prices",[]),"whale_exits":closed,"portfolio":paper.summary(),
             "live_trading_enabled":False}
 
 @app.get("/api/v1/signals")
@@ -336,6 +377,7 @@ class PaperBuyRequest(BaseModel):
     mint: str = Field(min_length=32, max_length=44)
     usd: float = Field(gt=0, le=100000)
     price_usd: float = Field(gt=0)
+    origin_wallet: str | None = Field(default=None, min_length=32, max_length=44)
 
 class PaperMarkRequest(BaseModel):
     prices: dict[str, float]
@@ -346,7 +388,7 @@ def paper_portfolio():
 
 @app.post("/api/v1/paper/buy")
 def paper_buy(payload: PaperBuyRequest):
-    return paper.buy(payload.mint, payload.usd, payload.price_usd)
+    return paper.buy(payload.mint, payload.usd, payload.price_usd, payload.origin_wallet)
 
 @app.post("/api/v1/paper/mark")
 def paper_mark(payload: PaperMarkRequest):
