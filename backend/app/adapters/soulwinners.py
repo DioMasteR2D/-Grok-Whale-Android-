@@ -59,9 +59,13 @@ def initialize_postgres_schema() -> dict:
             with conn.cursor() as cur:
                 cur.execute(ddl)
         return {"status": "ok"}
-    except Exception:
+    except Exception as exc:
         # Never expose database URLs, passwords, or provider connection details.
-        return {"status": "unavailable"}
+        import logging
+        logging.getLogger("grok-whale-api").warning(
+            "SoulWinners schema initialization failed (%s)", type(exc).__name__
+        )
+        return {"status": "unavailable", "error_type": type(exc).__name__}
 
 def fetch_qualified_wallets(limit: int = 100) -> dict:
     count = max(1, min(limit, 500))
@@ -75,6 +79,10 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
                     # data when that table exists; never infer BES from priority_score.
                     cur.execute("SELECT to_regclass('public.wallet_performance')")
                     has_performance = cur.fetchone()[0] is not None
+                    if has_performance:
+                        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='wallet_performance'")
+                        performance_columns = {r[0] for r in cur.fetchall()}
+                        has_performance = {"wallet_address", "buy_transactions", "total_sol_spent"}.issubset(performance_columns)
                     if has_performance:
                         cur.execute(
                             """SELECT q.wallet_address, q.source, q.roi_pct, q.median_roi_pct,
@@ -114,8 +122,13 @@ def fetch_qualified_wallets(limit: int = 100) -> dict:
         except psycopg.errors.UndefinedTable:
             return {"status": "schema_pending", "items": [], "storage": "postgres",
                     "message": "SoulWinners schema has not been initialized yet."}
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger("grok-whale-api").warning(
+                "SoulWinners PostgreSQL query failed (%s)", type(exc).__name__
+            )
             return {"status": "unavailable", "items": [], "storage": "postgres",
+                    "error_type": type(exc).__name__,
                     "message": "SoulWinners PostgreSQL query failed; inspect private server logs."}
     if not DB_PATH:
         return {"status": "not_configured", "items": [],
