@@ -98,7 +98,7 @@ def status():
         "sources": {
             "solscope_proxy": "configured" if GMGN_PROXY_URL else "missing_config",
             "soulwinners_database": db.get("status", "unknown"),
-            "atlas_helius": "configured_auto_discovery" if HELIUS_API_KEY and GMGN_PROXY_URL else ("missing_helius_key" if not HELIUS_API_KEY else "missing_solscope_proxy"),
+            "atlas_helius": "configured_for_qualified_wallet_scans" if HELIUS_API_KEY else "missing_helius_key",
             "flow_analytics": "deterministic_v1",
             "grok_agent": {"status": "configured", "provider": "xAI", "model": GROK_MODEL} if XAI_API_KEY else {"status": "missing_xai_key", "provider": "xAI"},
         },
