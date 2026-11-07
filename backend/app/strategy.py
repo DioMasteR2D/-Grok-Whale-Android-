@@ -13,12 +13,14 @@ SESSION_END = "21:30"
 
 STRATEGY = {
     "wallet_ranking": {
-        "metric": "SoulWinners priority_score",
+        "metric": "BES",
+        "ranking_field": "bes_score",
+        "ranking_field_must_exist": True,
         "keep_top": 10,
         "period_days": 30,
         "min_win_rate": 0.60,
         "min_trades": 15,
-        "min_roi": 0.50,
+        "min_roi_percent": 50.0,
         "archetypes": ["Core Alpha", "Moonshot", "Sniper"],
         "exclude": ["CEX", "market makers", "bridges", "developers"],
     },
@@ -32,11 +34,8 @@ STRATEGY = {
         "mint_revoked_required": True,
     },
     "position": {
-        "trade_size_usd": 2.0,
-        "max_open_positions": 10,
-        "take_profit_percent": 10.0,
-        "stop_loss_percent": -5.0,
-        "daily_loss_limit_usd": 15.0,
+        "max_position_portfolio_percent": 8.0,
+        "stop_loss_percent": -6.0,
         "exit_when_origin_whale_exits": True,
     },
     "execution": {
@@ -80,6 +79,8 @@ def evaluate_entry(data: dict) -> dict:
         "checks": checks,
         "failed_gates": [name for name, ok in checks.items() if not ok],
         "execution_mode": "paper",
+        "position_size_percent": 8.0,
+        "stop_loss_percent": -6.0,
         "live_trading_enabled": False,
         "message": "All Atlas entry gates passed; paper evaluation only." if passed
             else "Entry rejected: one or more mandatory gates failed or lack evidence.",
