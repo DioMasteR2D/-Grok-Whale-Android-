@@ -52,3 +52,44 @@ def test_grok_alert_cannot_claim_unbounded_or_invalid_scores():
     assert alerts[0]["crowding_score"] is None
     assert alerts[0]["action"] == "unknown"
     assert alerts[0]["model_generated_unverified"] is True
+
+
+from app.analysis import build_atlas_propagation
+
+
+def test_atlas_propagation_requires_real_swap_evidence_and_three_wallets():
+    wallets = [{"wallet_address": f"wallet{i}"} for i in range(3)]
+    flows = {"status": "ok", "items": [
+        {"wallet_address": "wallet0", "transactions": [
+            {"type": "SWAP", "fee_payer": "wallet0", "timestamp": 1000, "signature": "sig0",
+             "token_transfers": [{"mint": "mintA", "fromUserAccount": "pool", "toUserAccount": "wallet0", "tokenAmount": 100.0}]}]},
+        {"wallet_address": "wallet1", "transactions": [
+            {"type": "SWAP", "fee_payer": "wallet1", "timestamp": 1060, "signature": "sig1",
+             "token_transfers": [{"mint": "mintA", "fromUserAccount": "pool", "toUserAccount": "wallet1", "tokenAmount": 90.0}]}]},
+        {"wallet_address": "wallet2", "transactions": [
+            {"type": "SWAP", "fee_payer": "wallet2", "timestamp": 1120, "signature": "sig2",
+             "token_transfers": [{"mint": "mintA", "fromUserAccount": "pool", "toUserAccount": "wallet2", "tokenAmount": 80.0}]}]},
+    ]}
+    result = build_atlas_propagation(flows, wallets)
+    assert result["status"] == "ok"
+    assert len(result["items"]) == 1
+    event = result["items"][0]
+    assert event["origin_wallet"] == "wallet0"
+    assert event["following_whale_count"] == 2
+    assert event["following_lags_seconds"] == [60, 120]
+    assert 0 < event["propagation_score"] <= 1
+    assert event["evidence_is_onchain_observation"] is True
+    assert event["score_is_model_generated"] is False
+
+
+def test_atlas_propagation_ignores_non_swap_and_unqualified_wallets():
+    flows = {"status": "ok", "items": [
+        {"wallet_address": "wallet0", "transactions": [
+            {"type": "TRANSFER", "timestamp": 1000, "token_transfers": [
+                {"mint": "mintA", "fromUserAccount": "pool", "toUserAccount": "wallet0", "tokenAmount": 100}]}]},
+        {"wallet_address": "not-qualified", "transactions": [
+            {"type": "SWAP", "timestamp": 1010, "token_transfers": [
+                {"mint": "mintA", "fromUserAccount": "pool", "toUserAccount": "not-qualified", "tokenAmount": 90}]}]},
+    ]}
+    result = build_atlas_propagation(flows, [{"wallet_address": "wallet0"}])
+    assert result["items"] == []
