@@ -13,7 +13,7 @@ SESSION_END = "21:30"
 
 STRATEGY = {
     "wallet_ranking": {
-        "metric": "BES",
+        "metric": "SoulWinners priority_score",
         "keep_top": 10,
         "period_days": 30,
         "min_win_rate": 0.60,
@@ -32,8 +32,11 @@ STRATEGY = {
         "mint_revoked_required": True,
     },
     "position": {
-        "max_portfolio_percent": 0.08,
-        "stop_loss_percent": -0.06,
+        "trade_size_usd": 2.0,
+        "max_open_positions": 10,
+        "take_profit_percent": 10.0,
+        "stop_loss_percent": -5.0,
+        "daily_loss_limit_usd": 15.0,
         "exit_when_origin_whale_exits": True,
     },
     "execution": {
