@@ -88,18 +88,24 @@ async def whales(period: str = Query(default="7d", pattern="^(1d|7d|30d)$"), lim
 
 
 def _soulwinners_top10(rows):
-    """Apply the user's approved gates to upstream SoulWinners output.
-    Preserve its priority_score ranking; do not invent a BES score.
+    """Apply the exact approved gates and rank only by a source-computed BES.
+
+    SoulWinners' public metrics documentation defines BES as
+    (ROI per trade * win rate * trade frequency) / average buy size.
+    The qualified_wallets output currently lacks average_buy_size and the
+    source-computed BES. Never substitute priority_score or invent a value.
     """
-    eligible = []
-    rejected = {"win_rate": 0, "trades": 0, "roi": 0, "archetype": 0, "excluded_label": 0}
-    archetypes = ("core alpha", "moonshot", "sniper")
+    candidates = []
+    rejected = {"missing_bes_inputs": 0, "win_rate": 0, "trades": 0,
+                "roi": 0, "archetype": 0, "excluded_label": 0}
+    archetypes = ("core alpha", "moonshot", "moonshot hunters", "sniper")
     excluded = ("cex", "market maker", "bridge", "developer", "dev wallet")
     for row in rows:
-        win_rate = row.get("profit_token_ratio")
-        trades = row.get("total_trades")
-        roi = row.get("roi_pct")
-        cluster = str(row.get("cluster_name") or row.get("cluster_label") or "").lower()
+        win_rate = row.get("win_rate")
+        if win_rate is None:
+            win_rate = row.get("profit_token_ratio")
+        trades, roi = row.get("total_trades"), row.get("roi_pct")
+        label = str(row.get("cluster_name") or row.get("cluster_label") or row.get("strategy_bucket") or "").lower()
         source = str(row.get("source") or "").lower()
         if not isinstance(win_rate, (int, float)) or win_rate < 0.60:
             rejected["win_rate"] += 1
@@ -110,21 +116,26 @@ def _soulwinners_top10(rows):
         if not isinstance(roi, (int, float)) or roi < 50:
             rejected["roi"] += 1
             continue
-        if not any(label in cluster for label in archetypes):
+        if not any(name in label for name in archetypes):
             rejected["archetype"] += 1
             continue
-        if any(label in cluster or label in source for label in excluded):
+        if any(term in label or term in source for term in excluded):
             rejected["excluded_label"] += 1
             continue
-        eligible.append(row)
-    eligible.sort(key=lambda row: float(row.get("priority_score") or 0), reverse=True)
-    return eligible[:10], {
+        bes = row.get("bes_score")
+        if not isinstance(bes, (int, float)):
+            rejected["missing_bes_inputs"] += 1
+            continue
+        candidates.append({**row, "bes_score": float(bes)})
+    candidates.sort(key=lambda row: row["bes_score"], reverse=True)
+    return candidates[:10], {
         "candidates_received": len(rows),
-        "eligible_before_top10": len(eligible),
-        "returned": min(10, len(eligible)),
+        "eligible_before_top10": len(candidates),
+        "returned": min(10, len(candidates)),
         "rejected": rejected,
-        "ranking_metric": "SoulWinners priority_score (upstream formula)",
-        "note": "The upstream SoulWinners code exposes priority_score, not a field named BES. No replacement score is calculated here.",
+        "ranking_metric": "BES",
+        "bes_formula": "(ROI per trade × win rate × trade frequency) / average buy size",
+        "note": "No BES is inferred from priority_score. Rows without a source-computed BES are excluded.",
     }
 
 @app.get("/api/v1/whales/top")
