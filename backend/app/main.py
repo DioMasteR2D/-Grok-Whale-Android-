@@ -14,6 +14,7 @@ from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
 from app.adapters.atlas_agent import analyze_atlas_flows, ANTHROPIC_API_KEY
 from app.analysis import build_flow_signals
 from app.strategy import STRATEGY, session_status, evaluate_entry
+from app import paper
 
 logger = logging.getLogger("grok-whale-api")
 app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.6.0")
@@ -62,6 +63,11 @@ def initialize_sources():
             logger.warning("SoulWinners schema initialization did not complete: %s", result.get("status"))
         else:
             logger.info("SoulWinners PostgreSQL schema is ready.")
+        try:
+            paper.initialize()
+            logger.info("Persistent paper portfolio schema is ready.")
+        except Exception as exc:
+            logger.warning("Paper portfolio initialization failed (%s)", type(exc).__name__)
     else:
         logger.info("SoulWinners PostgreSQL is not configured; skipping schema initialization.")
 
@@ -286,11 +292,29 @@ def execution_readiness():
         "message": "Live execution is fail-closed until every data, safety, wallet-approval, and risk check is verified.",
     }
 
+class PaperBuyRequest(BaseModel):
+    mint: str = Field(min_length=32, max_length=44)
+    usd: float = Field(gt=0, le=100000)
+    price_usd: float = Field(gt=0)
+
+class PaperMarkRequest(BaseModel):
+    prices: dict[str, float]
+
 @app.get("/api/v1/paper-portfolio")
 def paper_portfolio():
-    return {"mode": "paper", "quote_currency": "USD", "cash": 0.0,
-            "open_positions": [], "realized_pnl": 0.0, "unrealized_pnl": 0.0,
-            "live_trading_enabled": False}
+    return paper.summary()
+
+@app.post("/api/v1/paper/buy")
+def paper_buy(payload: PaperBuyRequest):
+    return paper.buy(payload.mint, payload.usd, payload.price_usd)
+
+@app.post("/api/v1/paper/mark")
+def paper_mark(payload: PaperMarkRequest):
+    return paper.mark_prices(payload.prices)
+
+@app.post("/api/v1/paper/close/{position_id}")
+def paper_close(position_id: int):
+    return paper.close(position_id)
 
 @app.get("/api/v1/strategy")
 def strategy_config():
