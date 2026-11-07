@@ -86,6 +86,66 @@ async def whales(period: str = Query(default="7d", pattern="^(1d|7d|30d)$"), lim
     )
     return {"period": period, "sources": {"solscope": solscope, "soulwinners": soulwinners}}
 
+
+def _soulwinners_top10(rows):
+    """Apply the user's approved gates to upstream SoulWinners output.
+    Preserve its priority_score ranking; do not invent a BES score.
+    """
+    eligible = []
+    rejected = {"win_rate": 0, "trades": 0, "roi": 0, "archetype": 0, "excluded_label": 0}
+    archetypes = ("core alpha", "moonshot", "sniper")
+    excluded = ("cex", "market maker", "bridge", "developer", "dev wallet")
+    for row in rows:
+        win_rate = row.get("profit_token_ratio")
+        trades = row.get("total_trades")
+        roi = row.get("roi_pct")
+        cluster = str(row.get("cluster_name") or row.get("cluster_label") or "").lower()
+        source = str(row.get("source") or "").lower()
+        if not isinstance(win_rate, (int, float)) or win_rate < 0.60:
+            rejected["win_rate"] += 1
+            continue
+        if not isinstance(trades, int) or trades < 15:
+            rejected["trades"] += 1
+            continue
+        if not isinstance(roi, (int, float)) or roi < 50:
+            rejected["roi"] += 1
+            continue
+        if not any(label in cluster for label in archetypes):
+            rejected["archetype"] += 1
+            continue
+        if any(label in cluster or label in source for label in excluded):
+            rejected["excluded_label"] += 1
+            continue
+        eligible.append(row)
+    eligible.sort(key=lambda row: float(row.get("priority_score") or 0), reverse=True)
+    return eligible[:10], {
+        "candidates_received": len(rows),
+        "eligible_before_top10": len(eligible),
+        "returned": min(10, len(eligible)),
+        "rejected": rejected,
+        "ranking_metric": "SoulWinners priority_score (upstream formula)",
+        "note": "The upstream SoulWinners code exposes priority_score, not a field named BES. No replacement score is calculated here.",
+    }
+
+@app.get("/api/v1/whales/top")
+def qualified_top_whales():
+    result = fetch_qualified_wallets(500)
+    if result.get("status") != "ok":
+        return {
+            "status": result.get("status", "unknown"),
+            "items": [],
+            "qualification": {"returned": 0},
+            "message": result.get("message", "SoulWinners data is not available."),
+        }
+    items, qualification = _soulwinners_top10(result.get("items", []))
+    return {
+        "status": "ok",
+        "source": "SoulWinners",
+        "items": items,
+        "qualification": qualification,
+        "message": "Only source rows meeting the available ROI, win-rate, trade-count and archetype gates are returned. Missing/unsupported exclusion labels cannot be independently verified.",
+    }
+
 @app.get("/api/v1/atlas/flows")
 async def atlas_flows(limit: int = Query(default=10, ge=1, le=25)):
     return await get_cached_wallet_flows(limit)
