@@ -168,13 +168,6 @@ private fun DashboardScreen() {
             }
         }
         item {
-            Row(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
-                listOf("SOL +0.7%","$BONK +7.8%","$WIF +4.2%","$POPCAT -1.9%").forEach {
-                    Text(it,color=if(it.contains("-"))Red else Green,fontSize=8.sp,modifier=Modifier.background(Panel,RoundedCornerShape(8.dp)).padding(horizontal=7.dp,vertical=6.dp))
-                }
-            }
-        }
-        item {
             Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(18.dp)).padding(15.dp)) {
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
                     Text("trading session 13:30 → 21:30",color=Muted,fontSize=9.sp)
@@ -213,10 +206,19 @@ private fun DashboardScreen() {
                 Text("wallet connection",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
                 Text(walletLabel,color=Muted,fontSize=10.sp)
                 Button(onClick={showConnectInfo=true},modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=Purple)) { Text("Connect Phantom") }
-                Text("Mobile Wallet Adapter authorization is required. No seed phrase or private key is requested.",color=Muted,fontSize=9.sp)
+                Text("Phantom connection will be enabled after the dashboard and session data are verified. Never enter a seed phrase or private key here.",color=Muted,fontSize=9.sp)
             }
         }
-        item { Text("8h recap · shown when session accounting is available",color=Muted,fontSize=10.sp,modifier=Modifier.padding(bottom=20.dp)) }
+        item {
+            Column(Modifier.fillMaxWidth().background(Panel,RoundedCornerShape(17.dp)).padding(13.dp)) {
+                Text("8H SESSION RECAP",color=Color.White,fontSize=14.sp,fontWeight=FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("Capital deployed: —     PnL: —",color=Muted,fontSize=10.sp)
+                Text("Trades: —     Memes: —     Whales: —",color=Muted,fontSize=10.sp)
+                Text("Recap will populate from verified session and paper-trade records.",color=Amber,fontSize=9.sp)
+            }
+        }
+        item { Text("Phantom authorization is the next integration step. No wallet has been connected yet.",color=Muted,fontSize=9.sp,modifier=Modifier.padding(bottom=20.dp)) }
     }
     if(showConnectInfo) AlertDialog(
         onDismissRequest={showConnectInfo=false},
