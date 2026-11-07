@@ -264,14 +264,28 @@ private fun DashboardScreen(walletSender: ActivityResultSender, walletAdapter: M
                 Text("Recap will populate from verified session and paper-trade records.",color=Amber,fontSize=9.sp)
             }
         }
-        item { Text("Phantom authorization is the next integration step. No wallet has been connected yet.",color=Muted,fontSize=9.sp,modifier=Modifier.padding(bottom=20.dp)) }
+        item { Text("Wallet approval remains inside Phantom. No private keys are handled by this app.",color=Muted,fontSize=9.sp,modifier=Modifier.padding(bottom=20.dp)) }
     }
-    if(showConnectInfo) AlertDialog(
-        onDismissRequest={showConnectInfo=false},
-        title={Text("Phantom connection")},
-        text={Text("Phantom authorization is not implemented yet. This app cannot connect or sign transactions. Paper mode only; never enter a seed phrase or private key.")},
-        confirmButton={ TextButton(onClick={ showConnectInfo = false }) { Text("OK") } }
-    )
+    LaunchedEffect(walletBusy) {
+        if (walletBusy) {
+            try {
+                when (val result = walletAdapter.connect(walletSender)) {
+                    is TransactionResult.Success -> {
+                        val account = result.authResult.accounts.firstOrNull()
+                            ?: error("Wallet returned no authorized account")
+                        val address = base58(account.publicKey)
+                        walletLabel = "Connected: " + address.take(6) + "…" + address.takeLast(6)
+                    }
+                    is TransactionResult.NoWalletFound -> walletError = "No compatible wallet found. Open Phantom and try again."
+                    is TransactionResult.Failure -> walletError = result.message
+                }
+            } catch (e: Exception) {
+                walletError = e.message ?: "Wallet connection failed"
+            } finally {
+                walletBusy = false
+            }
+        }
+    }
 }
 
 private fun base58(input: ByteArray): String {
