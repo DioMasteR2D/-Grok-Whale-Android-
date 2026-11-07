@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 
 DB=os.getenv("SOULWINNERS_DATABASE_URL","").strip()
+MAX_OPEN_POSITIONS=max(1, min(50, int(os.getenv("MAX_OPEN_POSITIONS", "10"))))
 
 def _db():
     if not DB: raise RuntimeError("persistent_database_not_configured")
@@ -41,7 +42,7 @@ def summary():
                 for pid,mint,q,entry,last,opened,origin_wallet in pos:
                     pnl=(last-entry)*q; unreal+=pnl
                     items.append({"id":pid,"mint":mint,"quantity":q,"entry_price":entry,"last_price":last,"market_value":q*last,"unrealized_pnl":pnl,"opened_at":opened.isoformat() if opened else None,"origin_wallet":origin_wallet})
-                return {"status":"ok","mode":"paper","quote_currency":"USD","starting_cash":start,"cash":cash,"open_positions":items,"realized_pnl":realized,"unrealized_pnl":unreal,"equity":cash+sum(x["market_value"] for x in items),"live_trading_enabled":False}
+                return {"status":"ok","mode":"paper","quote_currency":"USD","starting_cash":start,"cash":cash,"open_positions":items,"realized_pnl":realized,"unrealized_pnl":unreal,"equity":cash+sum(x["market_value"] for x in items),"max_open_positions":MAX_OPEN_POSITIONS,"live_trading_enabled":False}
     except Exception as e:
         return {"status":"not_configured" if str(e)=="persistent_database_not_configured" else "unavailable","mode":"paper","open_positions":[],"message":"Persistent paper database is not available.","live_trading_enabled":False}
 
@@ -58,6 +59,10 @@ def buy(mint,usd,price,origin_wallet=None):
                 equity=cash+float(cur.fetchone()[0])
                 if usd>cash: return {"status":"rejected","message":"Insufficient paper cash."}
                 if usd>equity*.08+1e-8: return {"status":"rejected","message":"Position exceeds approved 8% portfolio cap."}
+                cur.execute("SELECT COUNT(*) FROM paper_positions WHERE status='open'")
+                open_count=int(cur.fetchone()[0])
+                if open_count>=MAX_OPEN_POSITIONS:
+                    return {"status":"rejected","message":f"Maximum open paper positions reached ({MAX_OPEN_POSITIONS})."}
                 cur.execute("SELECT 1 FROM paper_positions WHERE mint=%s AND status='open'",(mint,))
                 if cur.fetchone(): return {"status":"rejected","message":"Position already open for this mint."}
                 q=usd/price
