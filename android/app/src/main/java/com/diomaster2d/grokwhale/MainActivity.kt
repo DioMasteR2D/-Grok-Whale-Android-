@@ -137,14 +137,22 @@ private suspend fun loadData():AppData = try {
     val src=status.optJSONObject("sources") ?: JSONObject()
     val flow=api("/api/v1/atlas/flows?limit=10")
     val sig=api("/api/v1/signals?limit=20")
+    val top=api("/api/v1/whales/top")
     val arr=sig.optJSONArray("items")
+    val whaleArray=top.optJSONArray("items")
+    val whaleRows=buildList {
+        if(whaleArray!=null) for(i in 0 until whaleArray.length()) {
+            val w=whaleArray.optJSONObject(i) ?: continue
+            add(WalletRow(w.optString("wallet_address"),w.optString("cluster_name",w.optString("cluster_label","—")),w.optDouble("roi_pct",0.0),w.optDouble("profit_token_ratio",0.0),w.optInt("total_trades"),w.optDouble("priority_score",0.0)))
+        }
+    }
     val rows=buildList {
         if(arr!=null) for(i in 0 until arr.length()) {
             val x=arr.optJSONObject(i) ?: continue
             add(SignalRow(x.optString("mint"),x.optString("bias"),x.optInt("score"),x.optString("action"),x.optInt("wallets_buying"),x.optInt("wallets_selling"),x.optString("confidence")))
         }
     }
-    AppData(true,"LIVE DATA",src.optString("soulwinners_database","unknown"),src.optString("atlas_agent","unknown"),flow.optString("discovery","unknown"),flow.optString("status","unknown"),flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),rows)
+    AppData(online=true,status="LIVE DATA",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=src.optString("atlas_agent","not deployed"),discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows)
 } catch(e:Exception) { AppData(status="API OFFLINE",error=e.message ?: "Unknown error") }
 
 @Composable
