@@ -187,6 +187,8 @@ private suspend fun loadData():AppData = try {
     val sig=api("/api/v1/signals?limit=20")
     val top=api("/api/v1/whales/top")
     val readiness=api("/api/v1/execution/readiness")
+    // Refresh paper marks and process observed origin-whale SWAP exits once per dashboard poll.
+    runCatching { api("/api/v1/paper/refresh") }
     val paper=api("/api/v1/paper-portfolio")
     val arr=sig.optJSONArray("items")
     val whaleArray=top.optJSONArray("items")
