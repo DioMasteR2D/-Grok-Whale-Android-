@@ -3,6 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val grokApiBaseUrl = providers.gradleProperty("GROK_API_BASE_URL")
+    .orElse(providers.environmentVariable("GROK_API_BASE_URL"))
+    .orElse("https://diomaster2d-grok-whale-api.onrender.com")
+    .get()
+    .trimEnd('/')
+
 android {
     namespace = "com.diomaster2d.grokwhale"
     compileSdk = 35
@@ -11,9 +17,13 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 2
-        versionName = "0.2.0"
+        versionName = "0.3.0"
+        buildConfigField("String", "API_BASE_URL", "\"${grokApiBaseUrl}\"")
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
