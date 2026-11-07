@@ -1,5 +1,9 @@
 from fastapi import FastAPI, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from pydantic import field_validator
+import os
+import re
+import httpx
 from datetime import datetime, timezone
 import logging
 import asyncio
@@ -33,6 +37,21 @@ class PaperStatus(BaseModel):
     mode: str = "paper"
     live_trading_enabled: bool = False
     note: str = "Simulation only. No transaction signing or order execution."
+
+class JupiterOrderRequest(BaseModel):
+    input_mint: str = Field(min_length=32, max_length=44)
+    output_mint: str = Field(min_length=32, max_length=44)
+    amount: int = Field(gt=0, le=10**15)
+    taker: str = Field(min_length=32, max_length=44)
+    slippage_bps: int = Field(default=100, ge=10, le=300)
+
+    @field_validator("input_mint", "output_mint", "taker")
+    @classmethod
+    def validate_base58(cls, value):
+        if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", value):
+            raise ValueError("Must be a valid-looking Solana base58 address")
+        return value
+
 
 @app.on_event("startup")
 def initialize_sources():
@@ -176,6 +195,58 @@ async def atlas_flows(limit: int = Query(default=10, ge=1, le=25)):
 async def signals(limit: int = Query(default=25, ge=1, le=100)):
     flows = await get_cached_wallet_flows(10)
     return build_flow_signals(flows, max_items=limit)
+
+
+@app.post("/api/v1/swap/order")
+async def jupiter_order_preview(payload: JupiterOrderRequest):
+    """Fetch a Jupiter quote/order for review only. Never signs or executes."""
+    if payload.input_mint == payload.output_mint:
+        return {"status": "rejected", "message": "Input and output tokens must differ."}
+    headers = {"Accept": "application/json"}
+    api_key = os.getenv("JUPITER_API_KEY", "").strip()
+    if api_key:
+        headers["x-api-key"] = api_key
+    params = {
+        "inputMint": payload.input_mint,
+        "outputMint": payload.output_mint,
+        "amount": str(payload.amount),
+        "taker": payload.taker,
+        "slippageBps": str(payload.slippage_bps),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=18) as client:
+            response = await client.get(
+                "https://api.jup.ag/swap/v2/order",
+                params=params,
+                headers=headers,
+            )
+        if response.status_code == 429:
+            return {"status": "rate_limited", "message": "Jupiter rate limit reached; retry later."}
+        response.raise_for_status()
+        order = response.json()
+    except httpx.HTTPStatusError as exc:
+        logger.warning("Jupiter order preview returned HTTP %s", exc.response.status_code)
+        return {"status": "provider_error", "message": "Jupiter quote service rejected the request."}
+    except httpx.HTTPError as exc:
+        logger.warning("Jupiter order preview transport error: %s", type(exc).__name__)
+        return {"status": "provider_unavailable", "message": "Jupiter quote service is temporarily unavailable."}
+    # Never return the serialized transaction in preview mode.
+    return {
+        "status": "quote_ready",
+        "provider": "Jupiter Swap API v2",
+        "input_mint": payload.input_mint,
+        "output_mint": payload.output_mint,
+        "in_amount": order.get("inAmount"),
+        "out_amount": order.get("outAmount"),
+        "other_amount_threshold": order.get("otherAmountThreshold"),
+        "price_impact_pct": order.get("priceImpact"),
+        "route_plan": order.get("routePlan", []),
+        "request_id": order.get("requestId"),
+        "transaction_prepared": bool(order.get("transaction")),
+        "transaction_returned": False,
+        "execution_enabled": False,
+        "message": "Quote only. Atlas entry gates and paper/live controls are not satisfied for execution. No transaction was signed or sent.",
+    }
 
 @app.get("/api/v1/paper-portfolio")
 def paper_portfolio():
