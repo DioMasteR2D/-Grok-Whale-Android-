@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "").strip()
-HELIUS_URL = "https://api.helius.xyz/v0/addresses/{address}/transactions"
+HELIUS_URL = "https://mainnet.helius-rpc.com/v1/parsed-events/transaction-history"
 PAGE_SIZE = 100
 MAX_PAGES_PER_WALLET = max(1, min(500, int(os.getenv("SOULWINNERS_MAX_PAGES_PER_WALLET", "100"))))
 
@@ -57,54 +57,76 @@ async def collect_wallet_history(
     now: int,
     max_pages: int = MAX_PAGES_PER_WALLET,
 ) -> dict[str, Any]:
-    """Fetch descending pages until the 30d cutoff or history end is proven."""
-    before_signature = None
+    """Fetch 30d history with Helius Parsed Events and token-account coverage."""
+    pagination_token = None
     rows: dict[str, dict[str, Any]] = {}
     pages = 0
     reached_cutoff = False
     exhausted = False
     while pages < max_pages:
-        params: dict[str, Any] = {
-            "api-key": HELIUS_API_KEY,
+        payload: dict[str, Any] = {
+            "address": wallet,
             "limit": PAGE_SIZE,
-            "sort-order": "desc",
+            "sortOrder": "desc",
             "commitment": "finalized",
+            "tokenAccounts": "balanceChanged",
         }
-        if before_signature:
-            params["before-signature"] = before_signature
-        response = await client.get(HELIUS_URL.format(address=wallet), params=params)
+        if pagination_token:
+            payload["paginationToken"] = pagination_token
+        response = await client.post(
+            HELIUS_URL,
+            params={"api-key": HELIUS_API_KEY},
+            json=payload,
+        )
         response.raise_for_status()
-        batch = response.json()
-        if not isinstance(batch, list):
-            raise ValueError("Helius returned a non-list transaction page")
+        page = response.json()
+        if not isinstance(page, dict) or not isinstance(page.get("data"), list):
+            raise ValueError("Helius Parsed Events returned an invalid history page")
         pages += 1
+        batch = page["data"]
         if not batch:
+            next_token = page.get("paginationToken")
+            if next_token:
+                if next_token == pagination_token:
+                    raise ValueError("Helius pagination cursor did not advance")
+                pagination_token = next_token
+                continue
             exhausted = True
             break
+
         oldest_in_page = None
-        last_signature = None
-        for tx in batch:
-            if not isinstance(tx, dict):
+        for item in batch:
+            if not isinstance(item, dict):
                 raise ValueError("Helius page contains a malformed transaction row")
-            ts = _timestamp(tx)
-            if ts is None or not isinstance(tx.get("signature"), str) or not tx.get("signature"):
-                raise ValueError("Helius page contains a transaction without timestamp/signature; completeness cannot be proven")
-            if ts is not None:
-                oldest_in_page = ts if oldest_in_page is None else min(oldest_in_page, ts)
-            if isinstance(tx.get("signature"), str):
-                last_signature = tx["signature"]
-            normalized = _normalize(tx, wallet, cutoff, now)
+            parsed = item.get("parsed")
+            if not isinstance(parsed, dict):
+                # An item-level parser failure is not silently counted as valid history.
+                continue
+            ts_value = parsed.get("blockTime")
+            try:
+                ts = int(ts_value)
+            except (TypeError, ValueError):
+                raise ValueError("Parsed transaction has no valid blockTime")
+            oldest_in_page = ts if oldest_in_page is None else min(oldest_in_page, ts)
+            normalized = _normalize({
+                **parsed,
+                "signature": item.get("signature"),
+                "timestamp": ts,
+                "type": (parsed.get("summary") or {}).get("type", "UNKNOWN"),
+            }, wallet, cutoff, now)
             if normalized:
                 rows[normalized["signature"]] = normalized
+
         if oldest_in_page is not None and oldest_in_page < cutoff:
             reached_cutoff = True
             break
-        if len(batch) < PAGE_SIZE:
+        next_token = page.get("paginationToken")
+        if not next_token:
             exhausted = True
             break
-        if not last_signature or last_signature == before_signature:
+        if next_token == pagination_token:
             raise ValueError("Helius pagination cursor did not advance")
-        before_signature = last_signature
+        pagination_token = next_token
 
     complete = reached_cutoff or exhausted
     return {
@@ -115,7 +137,6 @@ async def collect_wallet_history(
         "stop_reason": "cutoff_reached" if reached_cutoff else ("history_exhausted" if exhausted else "page_limit_reached"),
         "oldest_observed": min((r["block_time"] for r in rows.values()), default=None),
     }
-
 
 
 def initialize_ingestion_schema() -> None:
@@ -176,7 +197,7 @@ async def run_ingestion(wallets: list[str], days: int = 30) -> dict[str, Any]:
                 cur.execute(
                     """INSERT INTO soulwinners_ingestion_runs
                        (window_start, window_end, source, wallets_requested, wallets_completed, wallets_failed, status, metadata)
-                       VALUES (%s,%s,'helius_enhanced_transactions',%s,%s,%s,%s,%s::jsonb)
+                       VALUES (%s,%s,'helius_parsed_events_transaction_history',%s,%s,%s,%s,%s::jsonb)
                        RETURNING id""",
                     (cutoff_dt, now_dt, len(clean_wallets),
                      sum(1 for r in successful if r["complete"]), len(failures),
@@ -207,7 +228,7 @@ async def run_ingestion(wallets: list[str], days: int = 30) -> dict[str, Any]:
             "wallets": [{k: v for k, v in r.items() if k != "transactions"} |
                         {"transactions_fetched": len(r["transactions"])} for r in successful],
             "qualification_updated": False,
-            "message": "Raw 30-day history stored. ROI, win rate, BES and qualification remain uncomputed until transaction-level PnL validation is implemented."
+            "message": "Raw 30-day Parsed Events history stored. ROI, win rate, BES and qualification remain uncomputed until transaction-level PnL validation is implemented."
         }
     except Exception as exc:
         return {"status": "storage_error", "error_type": type(exc).__name__,
