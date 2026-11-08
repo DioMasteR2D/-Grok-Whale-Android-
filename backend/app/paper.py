@@ -92,6 +92,57 @@ def mark_prices(prices):
         return {"status":"ok","updated":updated,"live_trading_enabled":False}
     except Exception: return {"status":"unavailable","message":"Persistent paper database is not available.","live_trading_enabled":False}
 
+
+def session_summary():
+    """Measured paper activity opened during today's Europe/Athens session."""
+    try:
+        now = datetime.now(ZoneInfo("Europe/Athens"))
+        start = now.replace(hour=13, minute=30, second=0, microsecond=0)
+        end = now.replace(hour=21, minute=30, second=0, microsecond=0)
+        with _db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT
+                      COALESCE(SUM(quantity * entry_price), 0),
+                      COALESCE(SUM(CASE WHEN status='closed' THEN realized_pnl ELSE 0 END), 0),
+                      COALESCE(SUM(CASE WHEN status='open' THEN (last_price-entry_price)*quantity ELSE 0 END), 0),
+                      COUNT(*),
+                      COUNT(DISTINCT mint),
+                      COUNT(DISTINCT origin_wallet),
+                      COUNT(*) FILTER (WHERE status='closed'),
+                      COUNT(*) FILTER (WHERE status='open')
+                    FROM paper_positions
+                    WHERE opened_at >= %s AND opened_at < %s
+                """, (start, end))
+                row = cur.fetchone()
+        capital, realized, unrealized, trades, memes, whales, closed, opened = row
+        realized = float(realized or 0)
+        unrealized = float(unrealized or 0)
+        return {
+            "status": "ok",
+            "mode": "paper",
+            "session_start": start.isoformat(),
+            "session_end": end.isoformat(),
+            "capital_deployed_usd": float(capital or 0),
+            "realized_pnl_usd": realized,
+            "unrealized_pnl_usd": unrealized,
+            "total_pnl_usd": realized + unrealized,
+            "trades": int(trades or 0),
+            "memes": int(memes or 0),
+            "whales": int(whales or 0),
+            "closed_positions": int(closed or 0),
+            "open_positions": int(opened or 0),
+            "live_trading_enabled": False,
+        }
+    except Exception:
+        return {
+            "status": "unavailable",
+            "mode": "paper",
+            "message": "Session records are not available.",
+            "live_trading_enabled": False,
+        }
+
+
 def close(position_id):
     try:
         with _db() as conn:
