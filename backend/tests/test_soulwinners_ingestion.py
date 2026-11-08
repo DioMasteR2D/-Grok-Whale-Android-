@@ -1,7 +1,6 @@
-from datetime import datetime, timezone
+import asyncio
 from app.adapters.soulwinners_ingestion import _normalize, collect_wallet_history
 import httpx
-import pytest
 
 def test_normalize_enforces_exact_30_day_window():
     now = 2_000_000_000
@@ -23,8 +22,7 @@ class FakeClient:
         self.calls.append(params.copy())
         return FakeResponse(self.pages.pop(0))
 
-@pytest.mark.asyncio
-async def test_history_paginates_until_cutoff_and_deduplicates():
+def test_history_paginates_until_cutoff_and_deduplicates():
     now = 2_000_000_000
     cutoff = now - 100
     wallet = "11111111111111111111111111111111"
@@ -34,18 +32,17 @@ async def test_history_paginates_until_cutoff_and_deduplicates():
         [{"signature": "s2", "timestamp": now - 50, "type": "SWAP"},
          {"signature": "s3", "timestamp": cutoff - 1, "type": "SWAP"}],
     ])
-    result = await collect_wallet_history(client, wallet, cutoff, now, max_pages=4)
+    result = asyncio.run(collect_wallet_history(client, wallet, cutoff, now, max_pages=4))
     assert result["complete"] is True
     assert result["stop_reason"] == "cutoff_reached"
     assert len(result["transactions"]) == 2
     assert client.calls[1]["before-signature"] == "s2"
 
-@pytest.mark.asyncio
-async def test_page_limit_is_marked_incomplete():
+def test_page_limit_is_marked_incomplete():
     now = 2_000_000_000
     wallet = "11111111111111111111111111111111"
     page = [{"signature": f"s{i}", "timestamp": now - i, "type": "SWAP"} for i in range(100)]
     client = FakeClient([page])
-    result = await collect_wallet_history(client, wallet, now - 1000, now, max_pages=1)
+    result = asyncio.run(collect_wallet_history(client, wallet, now - 1000, now, max_pages=1))
     assert result["complete"] is False
     assert result["stop_reason"] == "page_limit_reached"
