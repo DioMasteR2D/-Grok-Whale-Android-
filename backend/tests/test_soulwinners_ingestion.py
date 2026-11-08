@@ -63,6 +63,7 @@ def test_parsed_events_history_paginates_to_cutoff_and_deduplicates(monkeypatch)
     assert len(result["transactions"]) == 2
     assert client.calls[0]["url"] == ingestion.HELIUS_URL
     assert client.calls[0]["json"]["tokenAccounts"] == "balanceChanged"
+    assert client.calls[0]["json"]["time"] == {"gte": cutoff, "lte": now}
     assert client.calls[1]["json"]["paginationToken"] == "cursor-1"
 
 
@@ -90,3 +91,15 @@ def test_page_limit_is_marked_incomplete(monkeypatch):
     result = asyncio.run(collect_wallet_history(client, wallet, now - 1000, now, max_pages=1))
     assert result["complete"] is False
     assert result["stop_reason"] == "page_limit_reached"
+
+
+
+def test_parser_errors_prevent_false_complete_status():
+    now = 2_000_000_000
+    wallet = "11111111111111111111111111111111"
+    bad = {"signature": "bad", "parserStatus": "ERROR", "parserError": "decode failed"}
+    client = FakeClient([{"data": [parsed("s1", now - 10), bad], "paginationToken": None}])
+    result = asyncio.run(collect_wallet_history(client, wallet, now - 100, now, max_pages=2))
+    assert result["complete"] is False
+    assert result["parser_errors"] == 1
+    assert result["stop_reason"] == "parser_errors"
