@@ -116,7 +116,8 @@ def status():
         "sources": {
             "gmgn_leaderboard": "direct_read_only_adapter",
             "soulwinners_database": db.get("status", "unknown"),
-            "atlas_helius": "configured_for_qualified_wallet_scans" if HELIUS_API_KEY else "missing_helius_key",
+            "atlas_helius": "parsed_events_configured_for_qualified_wallet_scans" if HELIUS_API_KEY else "missing_helius_key",
+            "soulwinners_history": "helius_parsed_events_30d_collector",
             "flow_analytics": "deterministic_v1",
             "grok_agent": {"status": "configured", "provider": "xAI", "model": GROK_MODEL} if XAI_API_KEY else {"status": "missing_xai_key", "provider": "xAI"},
         },
