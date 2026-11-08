@@ -213,3 +213,47 @@ async def run_ingestion(wallets: list[str], days: int = 30) -> dict[str, Any]:
         return {"status": "storage_error", "error_type": type(exc).__name__,
                 "wallets_fetched": len(successful),
                 "message": "History was fetched but persistence failed; inspect private server logs."}
+
+
+async def discover_and_ingest_wallets(limit: int = 20) -> dict[str, Any]:
+    """Discover candidate wallets from the 30-day GMGN leaderboard, then ingest raw history.
+
+    Leaderboard entries are seeds only; this function never calculates or assigns
+    SoulWinners qualification, ROI, win rate, BES, or strategy eligibility.
+    """
+    bounded_limit = max(1, min(int(limit), 100))
+    from app.adapters.solscope import fetch_wallet_leaderboard
+    from app.adapters.atlas import _solscope_wallets
+
+    leaderboard = await fetch_wallet_leaderboard("30d")
+    if leaderboard.get("status") != "ok":
+        return {
+            "status": "discovery_unavailable",
+            "provider_status": leaderboard.get("status"),
+            "candidates_discovered": 0,
+            "qualification_updated": False,
+            "message": "30-day GMGN leaderboard unavailable; no wallets were ingested."
+        }
+
+    pnl = leaderboard.get("pnl_leaderboard", {}).get("payload", {})
+    winrate = leaderboard.get("winrate_leaderboard", {}).get("payload", {})
+    candidates = _solscope_wallets({"pnl": pnl, "winrate": winrate}, bounded_limit)
+    if not candidates:
+        return {
+            "status": "no_candidates",
+            "provider": "GMGN",
+            "period": "30d",
+            "candidates_discovered": 0,
+            "qualification_updated": False,
+            "message": "No valid wallet addresses were present in the 30-day leaderboard response."
+        }
+
+    result = await run_ingestion(candidates, days=30)
+    return {
+        **result,
+        "discovery_provider": "GMGN",
+        "discovery_period": "30d",
+        "candidates_discovered": len(candidates),
+        "qualification_updated": False,
+        "message": "Candidate wallet histories collected from the 30-day leaderboard. Candidates are not qualified; ROI, win rate and BES remain uncomputed."
+    }
