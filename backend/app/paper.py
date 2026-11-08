@@ -1,6 +1,7 @@
 """PostgreSQL-backed paper portfolio. Simulation only; never signs or sends."""
 import os
-from datetime import datetime, timezone\nfrom zoneinfo import ZoneInfo
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 DB=os.getenv("SOULWINNERS_DATABASE_URL","").strip()
 MAX_OPEN_POSITIONS=max(1, min(50, int(os.getenv("MAX_OPEN_POSITIONS", "10"))))
