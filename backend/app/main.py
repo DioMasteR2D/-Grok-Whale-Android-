@@ -280,6 +280,29 @@ async def token_prices(mints: str = Query(min_length=32, max_length=2200)):
     requested = [x.strip() for x in mints.split(",") if x.strip()]
     return await fetch_prices(requested)
 
+def _is_origin_exit_after_entry(tx: dict, origin: str, mint: str, opened_at: str | None) -> bool:
+    """Accept only a timestamped SWAP outflow that occurred after this position opened."""
+    if not opened_at or not isinstance(tx, dict):
+        return False
+    try:
+        opened = datetime.fromisoformat(opened_at.replace("Z", "+00:00"))
+        if opened.tzinfo is None:
+            opened = opened.replace(tzinfo=timezone.utc)
+        timestamp = int(tx.get("timestamp"))
+        if timestamp <= 0 or datetime.fromtimestamp(timestamp, timezone.utc) < opened:
+            return False
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if str(tx.get("type", "")).upper() != "SWAP":
+        return False
+    return any(
+        isinstance(transfer, dict)
+        and transfer.get("mint") == mint
+        and transfer.get("fromUserAccount") == origin
+        for transfer in (tx.get("tokenTransfers") or [])
+    )
+
+
 @app.get("/api/v1/paper/refresh")
 async def refresh_paper_prices():
     """Refresh open paper positions from Jupiter Price v3 and enforce paper SL."""
@@ -306,17 +329,12 @@ async def refresh_paper_prices():
                     response.raise_for_status()
                     txs = response.json()
                     for tx in txs if isinstance(txs,list) else []:
-                        if str(tx.get("type","")).upper() != "SWAP":
-                            continue
-                        outgoing = any(
-                            transfer.get("mint") == position["mint"] and
-                            transfer.get("fromUserAccount") == origin
-                            for transfer in (tx.get("tokenTransfers") or [])
-                            if isinstance(transfer,dict)
-                        )
-                        if outgoing:
+                        if _is_origin_exit_after_entry(
+                            tx, origin, position["mint"], position.get("opened_at")
+                        ):
                             whale_exits.append({"position_id":position["id"],"mint":position["mint"],
-                                                "origin_wallet":origin,"signature":tx.get("signature")})
+                                                "origin_wallet":origin,"signature":tx.get("signature"),
+                                                "timestamp":tx.get("timestamp")})
                             break
                 except httpx.HTTPError:
                     continue
