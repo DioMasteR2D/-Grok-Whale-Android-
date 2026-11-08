@@ -63,6 +63,7 @@ async def collect_wallet_history(
     pages = 0
     reached_cutoff = False
     exhausted = False
+    parser_errors = 0
     while pages < max_pages:
         payload: dict[str, Any] = {
             "address": wallet,
@@ -70,6 +71,7 @@ async def collect_wallet_history(
             "sortOrder": "desc",
             "commitment": "finalized",
             "tokenAccounts": "balanceChanged",
+            "time": {"gte": cutoff, "lte": now},
         }
         if pagination_token:
             payload["paginationToken"] = pagination_token
@@ -99,8 +101,9 @@ async def collect_wallet_history(
             if not isinstance(item, dict):
                 raise ValueError("Helius page contains a malformed transaction row")
             parsed = item.get("parsed")
-            if not isinstance(parsed, dict):
-                # An item-level parser failure is not silently counted as valid history.
+            if item.get("parserStatus") != "OK" or not isinstance(parsed, dict):
+                # Parser failures invalidate completeness; never silently drop them.
+                parser_errors += 1
                 continue
             ts_value = parsed.get("blockTime")
             try:
@@ -112,7 +115,7 @@ async def collect_wallet_history(
                 **parsed,
                 "signature": item.get("signature"),
                 "timestamp": ts,
-                "type": (parsed.get("summary") or {}).get("type", "UNKNOWN"),
+                "type": str((parsed.get("summary") or {}).get("type", "UNKNOWN")).upper(),
             }, wallet, cutoff, now)
             if normalized:
                 rows[normalized["signature"]] = normalized
@@ -128,13 +131,14 @@ async def collect_wallet_history(
             raise ValueError("Helius pagination cursor did not advance")
         pagination_token = next_token
 
-    complete = reached_cutoff or exhausted
+    complete = (reached_cutoff or exhausted) and parser_errors == 0
     return {
         "wallet_address": wallet,
         "transactions": list(rows.values()),
         "pages_fetched": pages,
+        "parser_errors": parser_errors,
         "complete": complete,
-        "stop_reason": "cutoff_reached" if reached_cutoff else ("history_exhausted" if exhausted else "page_limit_reached"),
+        "stop_reason": ("parser_errors" if parser_errors else ("cutoff_reached" if reached_cutoff else ("history_exhausted" if exhausted else "page_limit_reached"))),
         "oldest_observed": min((r["block_time"] for r in rows.values()), default=None),
     }
 
