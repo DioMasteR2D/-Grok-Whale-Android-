@@ -289,7 +289,7 @@ def _is_origin_exit_after_entry(tx: dict, origin: str, mint: str, opened_at: str
         if opened.tzinfo is None:
             opened = opened.replace(tzinfo=timezone.utc)
         timestamp = int(tx.get("timestamp"))
-        if timestamp <= 0 or datetime.fromtimestamp(timestamp, timezone.utc) < opened:
+        if timestamp <= 0 or datetime.fromtimestamp(timestamp, timezone.utc) <= opened:
             return False
     except (TypeError, ValueError, OverflowError):
         return False
