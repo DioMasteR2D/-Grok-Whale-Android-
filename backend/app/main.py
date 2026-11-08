@@ -11,7 +11,7 @@ import time
 import hmac
 from app.adapters.solscope import fetch_wallet_leaderboard
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
-from app.adapters.soulwinners_ingestion import run_ingestion
+from app.adapters.soulwinners_ingestion import run_ingestion, discover_and_ingest_wallets
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
 from app.adapters.atlas_agent import analyze_atlas_flows, XAI_API_KEY, GROK_MODEL
 from app.analysis import build_flow_signals, build_atlas_propagation
@@ -134,6 +134,18 @@ async def soulwinners_ingest(payload: SoulWinnersIngestionRequest, authorization
     if not DATABASE_URL:
         raise HTTPException(status_code=503, detail="SoulWinners PostgreSQL is not configured.")
     return await run_ingestion(payload.wallet_addresses, days=30)
+
+@app.post("/api/v1/soulwinners/ingest/discover")
+async def soulwinners_discover_and_ingest(limit: int = Query(default=20, ge=1, le=100), authorization: str | None = Header(default=None)):
+    """Admin-only discovery from GMGN 30d leaderboard followed by raw 30d ingestion."""
+    expected = os.getenv("SOULWINNERS_INGEST_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Ingestion admin token is not configured.")
+    if not hmac.compare_digest(authorization or "", f"Bearer {expected}"):
+        raise HTTPException(status_code=401, detail="Unauthorized.")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="SoulWinners PostgreSQL is not configured.")
+    return await discover_and_ingest_wallets(limit=limit)
 @app.get("/api/v1/whales")
 async def whales(period: str = Query(default="7d", pattern="^(1d|7d|30d)$"), limit: int = Query(default=100, ge=1, le=500)):
     import asyncio
