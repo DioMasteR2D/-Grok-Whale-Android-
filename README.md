@@ -22,10 +22,10 @@ This is an integration project, not a vendored copy of the upstream projects.
 | Upstream | Intended use | Current boundary |
 |---|---|---|
 | [SolScope](https://github.com/Frisbiz/solscope) | GMGN smart-wallet leaderboard | Adapter calls an existing proxy. Upstream repository currently has no declared license; its source is not copied. |
-| [SoulWinners](https://github.com/forgottenpeak/soulwinners) | Wallet monitoring, history and classification | Upstream declares MIT. This project reads an existing database; it does not yet run the upstream 30-day collector. |
+| [SoulWinners](https://github.com/forgottenpeak/soulwinners) | Wallet monitoring, history and classification | Upstream declares MIT. This project has an independent Helius Parsed Events raw-history collector, but it does not run the upstream SoulWinners classification pipeline. |
 | [Atlas](https://github.com/AtlasOnchain/Atlas) | Origin/follower propagation, sector context and crowding | README claims MIT, but the repository tree has no LICENSE file; treat licensing as unverified pending owner confirmation. Current adapter is an independent Helius-derived approximation + Grok advisory analysis, not the full Atlas runtime. |
 
-The upstream SoulWinners repository includes hard-coded API credentials in its public configuration file. This project does not copy or execute that configuration; any credentials owned by the upstream maintainer should be rotated. The SoulWinners table/schema initialization is **not ingestion**. This project includes an admin-only candidate discovery/ingestion trigger that seeds candidate wallets from the GMGN 30-day leaderboard and stores raw Helius transaction history. It does **not** yet derive audited 30-day ROI, win rate, trade counts, archetype or BES from that history, and it is not automatically scheduled. Until those metrics are independently calculated and persisted, candidates are excluded.
+The upstream SoulWinners repository includes hard-coded API credentials in its public configuration file. This project does not copy or execute that configuration; any credentials owned by the upstream maintainer should be rotated. The SoulWinners table/schema initialization is **not ingestion**. This project includes an admin-only candidate discovery/ingestion trigger that seeds candidate wallets from the GMGN 30-day leaderboard and stores raw Helius Parsed Events transaction history, bounded server-side to the exact 30-day window. Parser failures and truncated pagination are marked incomplete. It does **not** yet derive audited 30-day ROI, win rate, trade counts, archetype or BES from that history, and it is not automatically scheduled. Until those metrics are independently calculated and persisted, candidates are excluded.
 
 The independent deterministic propagation module now evaluates the qualified wallet set using observed Helius SWAPs and the published Atlas conceptual formula. It is explicitly labeled an Atlas-compatible approximation, not the upstream Atlas runtime. Grok's propagation/crowding estimates are not verified on-chain facts and cannot independently pass entry gates. The Atlas propagation score, follower timing and crowding calculation still require a verified implementation or deployed Atlas read-only service. LP mint discovery is also not implemented; the caller must supply the actual pool LP mint, and the endpoint warns that it cannot establish pool association itself.
 
@@ -81,9 +81,9 @@ Tests cover fail-closed strategy gates, the strict crowding threshold and valida
 
 ## Not yet production-complete
 
-1. Install and verify the real SoulWinners 30-day ingestion collector.
+1. Implement and independently validate transaction-level cost-basis/PnL reconstruction, then calculate and persist audited 30-day SoulWinners metrics and qualification.
 2. Deploy/implement Atlas-native propagation, 5-minute follower verification and crowding.
 3. Discover and validate the actual LP mint for each pool.
-4. Add persistent daily risk accounting, observability and deployment secrets.
+4. Verify persistent daily risk accounting, observability and deployment configuration.
 5. Verify the Render deployment and Android APK on a physical device.
 6. Keep all live transaction creation/signing disabled until every independent safety and wallet-approval check has been tested.
