@@ -50,22 +50,15 @@ async def verify_token(mint: str, lp_mint: str | None = None):
     except Exception:
         return {"status":"unavailable","mint":mint,"checks":{"mint_revoked":False,"lp_burned":False},
                 "evidence":{"mint":"malformed_or_unsupported_mint_account","lp":"not_checked"}}
+    # Fail closed until the supplied LP mint is associated with the actual pool.
+    # Checking an arbitrary mint's zero supply does not prove the pool liquidity was burned.
     lp_burned = False
-    lp_evidence = "lp_mint_not_supplied"
-    if lp_mint and B58.fullmatch(lp_mint):
-        supply, lp_error = await _rpc("getTokenSupply", [lp_mint, {"commitment":"finalized"}])
-        if lp_error or not supply or not supply.get("value"):
-            lp_evidence = lp_error or "lp_supply_unavailable"
-        else:
-            amount = supply["value"].get("amount")
-            try:
-                lp_burned = int(amount) == 0
-                lp_evidence = {"raw_supply":str(amount),"decimals":supply["value"].get("decimals"),
-                               "rule":"PASS only when total LP token supply is exactly zero"}
-            except (TypeError, ValueError):
-                lp_evidence = "invalid_lp_supply"
-    elif lp_mint:
-        lp_evidence = "invalid_lp_mint_address"
+    lp_evidence = {
+        "status": "unverified",
+        "reason": "pool_lp_mint_association_not_verified",
+        "supplied_lp_mint": lp_mint,
+        "rule": "A zero-supply LP mint is insufficient unless its association with the actual token pool is independently verified."
+    }
     return {
         "status":"verified" if mint_revoked and lp_burned else "checks_failed_or_incomplete",
         "mint":mint,"lp_mint":lp_mint,
@@ -75,5 +68,5 @@ async def verify_token(mint: str, lp_mint: str | None = None):
                             "freeze_authority_option":freeze_authority_option,
                             "commitment":"finalized"},
                     "lp":lp_evidence},
-        "warning":"LP burn is only confirmed when the supplied LP mint has zero total supply. Verify that lp_mint belongs to the actual pool; this endpoint does not discover pool LP mints."
+        "warning":"LP burn is fail-closed: this endpoint does not yet discover and verify the actual pool LP mint, so no supplied LP mint can satisfy the LP-burn gate."
     }
