@@ -155,7 +155,7 @@ private suspend fun apiPost(path:String):JSONObject {
 
 private suspend fun api(path:String):JSONObject {
     var lastError:Exception? = null
-    for (attempt in 0..2) {
+    for (attempt in 0..4) {
         try {
             return withContext(Dispatchers.IO) {
                 val connection=URL(API_BASE+path).openConnection() as HttpURLConnection
@@ -173,23 +173,28 @@ private suspend fun api(path:String):JSONObject {
             }
         } catch (e:Exception) {
             lastError=e
-            if (attempt < 2) delay(1200L * (attempt + 1))
+            if (attempt < 4) delay(1500L * (1L shl attempt))
         }
     }
-    throw IllegalStateException("API unavailable after 3 attempts: "+(lastError?.message ?: "network error"),lastError)
+    throw IllegalStateException("API unavailable after 5 attempts: "+(lastError?.message ?: "network error"),lastError)
 }
 
-private suspend fun loadData():AppData = try {
-    val status=api("/api/v1/status")
+private suspend fun loadData():AppData {
+    // Health is the only connectivity gate. A failed optional endpoint must not
+    // mark the whole app offline when the API itself is reachable.
+    val health = runCatching { api("/health") }.getOrElse {
+        return AppData(status="API OFFLINE",error=it.message ?: "Health check failed")
+    }
+    val status = runCatching { api("/api/v1/status") }.getOrNull() ?: JSONObject()
     val src=status.optJSONObject("sources") ?: JSONObject()
-    val flow=api("/api/v1/atlas/flows?limit=10")
+    val flow=runCatching { api("/api/v1/atlas/flows?limit=10") }.getOrNull() ?: JSONObject()
     val agent=runCatching { apiPost("/api/v1/atlas/agent/scan?limit=10") }.getOrNull()
-    val sig=api("/api/v1/signals?limit=20")
-    val top=api("/api/v1/whales/top")
-    val readiness=api("/api/v1/execution/readiness")
-    // Refresh paper marks and process observed origin-whale SWAP exits once per dashboard poll.
+    val sig=runCatching { api("/api/v1/signals?limit=20") }.getOrNull() ?: JSONObject()
+    val top=runCatching { api("/api/v1/whales/top") }.getOrNull() ?: JSONObject()
+    val readiness=runCatching { api("/api/v1/execution/readiness") }.getOrNull() ?: JSONObject()
+    // Paper endpoints are independent; preserve live API status if the database is unavailable.
     runCatching { api("/api/v1/paper/refresh") }
-    val paper=api("/api/v1/paper-portfolio")
+    val paper=runCatching { api("/api/v1/paper-portfolio") }.getOrNull() ?: JSONObject()
     val session=runCatching { api("/api/v1/paper/session-summary") }.getOrNull()
     val arr=sig.optJSONArray("items")
     val whaleArray=top.optJSONArray("items")
@@ -212,9 +217,17 @@ private suspend fun loadData():AppData = try {
         agent.optJSONArray("alerts") != null -> "scan complete · "+agent.optJSONArray("alerts")!!.length()+" alerts"
         else -> "scan returned"
     }
-    AppData(online=true,status="API ONLINE · SOURCE STATUS SHOWN BELOW",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows,readiness=if(readiness.optBoolean("ready_for_live_execution")) "All readiness checks passed" else "LIVE EXECUTION BLOCKED",blockers=buildList { val b=readiness.optJSONArray("blockers"); if(b!=null) for(i in 0 until b.length()) add(b.optString(i)) },paperSummary="Equity $"+paper.optDouble("equity",0.0)+" · Cash $"+paper.optDouble("cash",0.0)+" · Open "+(paper.optJSONArray("open_positions")?.length() ?: 0)+" · Realized PnL $"+paper.optDouble("realized_pnl",0.0),sessionSummary=if(session != null && session.optString("status")=="ok") "Capital $"+"%.2f".format(session.optDouble("capital_deployed_usd"))+" · PnL $"+ "%.2f".format(session.optDouble("total_pnl_usd"))+" (realized $"+"%.2f".format(session.optDouble("realized_pnl_usd"))+")\nTrades "+session.optInt("trades")+" · Memes "+session.optInt("memes")+" · Whales "+session.optInt("whales")+"\nClosed "+session.optInt("closed_positions")+" · Open "+session.optInt("open_positions") else "Verified session records unavailable")
-} catch(e:Exception) { AppData(status="API OFFLINE",error=e.message ?: "Unknown error") }
-
+    val paperOk = paper.optString("status")=="ok"
+    val paperText = if(paperOk) "Equity $"+paper.optDouble("equity",0.0)+" · Cash $"+paper.optDouble("cash",0.0)+" · Open "+(paper.optJSONArray("open_positions")?.length() ?: 0)+" · Realized PnL $"+paper.optDouble("realized_pnl",0.0) else "Paper portfolio unavailable · "+paper.optString("status","no response")
+    val issues = buildList {
+        if(status.length()==0) add("status endpoint unavailable")
+        if(flow.length()==0) add("Atlas flow endpoint unavailable")
+        if(sig.length()==0) add("signals endpoint unavailable")
+        if(top.length()==0) add("SoulWinners endpoint unavailable")
+        if(!paperOk) add("paper database unavailable")
+    }
+    AppData(online=true,status="API ONLINE · HEALTH CHECK OK",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows,readiness=if(readiness.optBoolean("ready_for_live_execution")) "Readiness reported ready · live still disabled" else "LIVE EXECUTION BLOCKED",blockers=buildList { val b=readiness.optJSONArray("blockers"); if(b!=null) for(i in 0 until b.length()) add(b.optString(i)) },paperSummary=paperText,sessionSummary=if(session != null && session.optString("status")=="ok") "Capital $"+"%.2f".format(session.optDouble("capital_deployed_usd"))+" · PnL $"+ "%.2f".format(session.optDouble("total_pnl_usd"))+" (realized $"+"%.2f".format(session.optDouble("realized_pnl_usd"))+")\nTrades "+session.optInt("trades")+" · Memes "+session.optInt("memes")+" · Whales "+session.optInt("whales")+"\nClosed "+session.optInt("closed_positions")+" · Open "+session.optInt("open_positions") else "Verified session records unavailable",error=issues.joinToString(" · "))
+}
 @Composable
 private fun DashboardScreen(walletSender: ActivityResultSender, walletAdapter: MobileWalletAdapter) {
     var data by remember { mutableStateOf(AppData()) }
