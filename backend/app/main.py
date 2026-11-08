@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Header, HTTPException
 from pydantic import BaseModel, Field
 from pydantic import field_validator
 import os
@@ -8,8 +8,10 @@ from datetime import datetime, timezone
 import logging
 import asyncio
 import time
-from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
+import hmac
+from app.adapters.solscope import fetch_wallet_leaderboard
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
+from app.adapters.soulwinners_ingestion import run_ingestion
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
 from app.adapters.atlas_agent import analyze_atlas_flows, XAI_API_KEY, GROK_MODEL
 from app.analysis import build_flow_signals, build_atlas_propagation
@@ -36,6 +38,16 @@ async def get_cached_wallet_flows(limit: int = 10):
         payload = await fetch_wallet_flows(limit)
         _flow_cache[limit] = {"stored_at": time.monotonic(), "payload": payload}
         return payload
+
+class SoulWinnersIngestionRequest(BaseModel):
+    wallet_addresses: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("wallet_addresses")
+    @classmethod
+    def validate_wallets(cls, values):
+        if any(not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", value.strip()) for value in values):
+            raise ValueError("Every wallet must be a valid-looking Solana base58 address")
+        return list(dict.fromkeys(value.strip() for value in values))
 
 class PaperStatus(BaseModel):
     mode: str = "paper"
@@ -65,6 +77,12 @@ def initialize_sources():
             logger.warning("SoulWinners schema initialization did not complete: %s", result.get("status"))
         else:
             logger.info("SoulWinners PostgreSQL schema is ready.")
+        try:
+            from app.adapters.soulwinners_ingestion import initialize_ingestion_schema
+            initialize_ingestion_schema()
+            logger.info("SoulWinners 30-day ingestion tables are ready.")
+        except Exception as exc:
+            logger.warning("SoulWinners ingestion schema initialization failed (%s)", type(exc).__name__)
         try:
             paper.initialize()
             logger.info("Persistent paper portfolio schema is ready.")
@@ -96,7 +114,7 @@ def status():
         "mode": "paper",
         "live_trading_enabled": False,
         "sources": {
-            "solscope_proxy": "configured" if GMGN_PROXY_URL else "missing_config",
+            "gmgn_leaderboard": "direct_read_only_adapter",
             "soulwinners_database": db.get("status", "unknown"),
             "atlas_helius": "configured_for_qualified_wallet_scans" if HELIUS_API_KEY else "missing_helius_key",
             "flow_analytics": "deterministic_v1",
@@ -105,6 +123,17 @@ def status():
         "note": "Helius provides observed wallet activity; Grok analysis is advisory only. AI-generated propagation/crowding estimates never satisfy on-chain safety gates.",
     }
 
+@app.post("/api/v1/soulwinners/ingest")
+async def soulwinners_ingest(payload: SoulWinnersIngestionRequest, authorization: str | None = Header(default=None)):
+    """Admin-only raw 30-day history ingestion. Never qualifies wallets by itself."""
+    expected = os.getenv("SOULWINNERS_INGEST_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Ingestion admin token is not configured.")
+    if not hmac.compare_digest(authorization or "", f"Bearer {expected}"):
+        raise HTTPException(status_code=401, detail="Unauthorized.")
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="SoulWinners PostgreSQL is not configured.")
+    return await run_ingestion(payload.wallet_addresses, days=30)
 @app.get("/api/v1/whales")
 async def whales(period: str = Query(default="7d", pattern="^(1d|7d|30d)$"), limit: int = Query(default=100, ge=1, le=500)):
     import asyncio
