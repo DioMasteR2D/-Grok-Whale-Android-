@@ -247,38 +247,29 @@ async def discover_and_ingest_wallets(limit: int = 20) -> dict[str, Any]:
     SoulWinners qualification, ROI, win rate, BES, or strategy eligibility.
     """
     bounded_limit = max(1, min(int(limit), 100))
-    from app.adapters.solscope import fetch_wallet_leaderboard
-    from app.adapters.atlas import _solscope_wallets
+    # Reuse the exact discovery path already shown by the live dashboard:
+    # SolScope/GMGN first, then the public dEdge leaderboard fallback.
+    # The previous implementation only read GMGN and therefore ignored the
+    # dEdge wallets visible in the app when GMGN returned no usable candidates.
+    from app.adapters.atlas import _discover_wallets
 
-    leaderboard = await fetch_wallet_leaderboard("30d")
-    if leaderboard.get("status") != "ok":
-        return {
-            "status": "discovery_unavailable",
-            "provider_status": leaderboard.get("status"),
-            "candidates_discovered": 0,
-            "qualification_updated": False,
-            "message": "30-day GMGN leaderboard unavailable; no wallets were ingested."
-        }
-
-    pnl = leaderboard.get("pnl_leaderboard", {}).get("payload", {})
-    winrate = leaderboard.get("winrate_leaderboard", {}).get("payload", {})
-    candidates = _solscope_wallets({"pnl": pnl, "winrate": winrate}, bounded_limit)
+    candidates, provider, warnings = await _discover_wallets(limit=bounded_limit)
     if not candidates:
         return {
             "status": "no_candidates",
-            "provider": "GMGN",
-            "period": "30d",
+            "provider": provider,
+            "warnings": warnings,
             "candidates_discovered": 0,
             "qualification_updated": False,
-            "message": "No valid wallet addresses were present in the 30-day leaderboard response."
+            "message": "No valid candidate wallets were returned by SolScope or the dEdge fallback."
         }
 
     result = await run_ingestion(candidates, days=30)
     return {
         **result,
-        "discovery_provider": "GMGN",
-        "discovery_period": "30d",
+        "discovery_provider": provider,
+        "discovery_warnings": warnings,
         "candidates_discovered": len(candidates),
         "qualification_updated": False,
-        "message": "Candidate wallet histories collected from the 30-day leaderboard. Candidates are not qualified; ROI, win rate and BES remain uncomputed."
+        "message": "Raw 30-day Helius histories collected from the same live SolScope/dEdge discovery path. This does not qualify wallets or fabricate PnL, win rate, or BES."
     }
