@@ -9,7 +9,7 @@ import logging
 import asyncio
 import time
 import hmac
-from app.adapters.solscope import fetch_wallet_leaderboard, GMGN_PROXY_URL
+from app.adapters.solscope import fetch_wallet_leaderboard
 from app.adapters.soulwinners import fetch_qualified_wallets, initialize_postgres_schema, DB_PATH, DATABASE_URL
 from app.adapters.soulwinners_ingestion import run_ingestion
 from app.adapters.atlas import fetch_wallet_flows, HELIUS_API_KEY
@@ -114,7 +114,7 @@ def status():
         "mode": "paper",
         "live_trading_enabled": False,
         "sources": {
-            "solscope_proxy": "configured" if GMGN_PROXY_URL else "missing_config",
+            "gmgn_leaderboard": "direct_read_only_adapter",
             "soulwinners_database": db.get("status", "unknown"),
             "atlas_helius": "configured_for_qualified_wallet_scans" if HELIUS_API_KEY else "missing_helius_key",
             "flow_analytics": "deterministic_v1",
