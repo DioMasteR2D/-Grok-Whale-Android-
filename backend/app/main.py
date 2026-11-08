@@ -76,19 +76,6 @@ class SoulWinnersIngestionRequest(BaseModel):
             raise ValueError("Every wallet must be a valid-looking Solana base58 address")
         return list(dict.fromkeys(value.strip() for value in values))
 
-class PaperBuyRequest(BaseModel):
-    mint: str = Field(min_length=32, max_length=44)
-    lp_mint: str = Field(min_length=32, max_length=44)
-    usd: float = Field(gt=0, le=1000)
-
-    @field_validator("mint", "lp_mint")
-    @classmethod
-    def validate_paper_addresses(cls, value):
-        if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", value):
-            raise ValueError("Must be a valid-looking Solana base58 address")
-        return value
-
-
 class PaperStatus(BaseModel):
     mode: str = "paper"
     live_trading_enabled: bool = False
@@ -280,39 +267,6 @@ def qualified_top_whales():
         "items": items,
         "qualification": qualification,
         "message": "Only rows with a measured win_rate >= 60%, ROI >= 50%, at least 15 trades, a supported archetype, and a source-computed BES are returned. profit_token_ratio is never substituted for win_rate. Missing exclusion labels cannot be independently verified.",
-    }
-
-
-@app.post("/api/v1/paper/buy")
-async def paper_buy(payload: PaperBuyRequest):
-    """Fail-closed paper entry; requires a verified session and measured SoulWinners top 10."""
-    session = session_status()
-    if not session.get("active"):
-        return {
-            "status": "rejected", "reason": "outside_strategy_session",
-            "session": session, "live_trading_enabled": False,
-        }
-
-    ranking = fetch_qualified_wallets(500)
-    if ranking.get("status") != "ok":
-        return {
-            "status": "rejected", "reason": "soulwinners_unavailable",
-            "live_trading_enabled": False,
-        }
-    top_items, qualification = _soulwinners_top10(ranking.get("items", []))
-    if not top_items:
-        return {
-            "status": "rejected", "reason": "no_measured_top10_wallets",
-            "qualification": qualification, "live_trading_enabled": False,
-        }
-
-    # No origin wallet / deterministic propagation proof is supplied by the
-    # current candidate signal contract. Never infer the six Atlas gates from
-    # AI output or an arbitrary client request; keep the paper order blocked.
-    return {
-        "status": "rejected", "reason": "atlas_entry_gates_unverified",
-        "message": "A measured origin wallet, deterministic propagation, crowding, LP burn and mint revocation proof are required.",
-        "qualification": qualification, "live_trading_enabled": False,
     }
 
 
@@ -524,3 +478,108 @@ def execution_readiness():
         "automatic_live_buys": False,
         "live_trading_enabled": False,
         "wallet_approval_required": True,
+        "soulwinners_database_status": db.get("status", "unknown"),
+        "checks": checks,
+        "blockers": blockers,
+        "ready_for_live_execution": False,
+        "message": "Live execution is fail-closed until every data, safety, wallet-approval, and risk check is verified.",
+    }
+
+class PaperBuyRequest(BaseModel):
+    mint: str = Field(min_length=32, max_length=44)
+    lp_mint: str = Field(min_length=32, max_length=44)
+    usd: float = Field(gt=0, le=100000)
+
+    @field_validator("mint", "lp_mint")
+    @classmethod
+    def validate_paper_mints(cls, value):
+        if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", value):
+            raise ValueError("Must be a valid-looking Solana base58 address")
+        return value
+
+class PaperMarkRequest(BaseModel):
+    prices: dict[str, float]
+
+@app.get("/api/v1/paper-portfolio")
+def paper_portfolio():
+    return paper.summary()
+
+@app.post("/api/v1/paper/buy")
+async def paper_buy(payload: PaperBuyRequest):
+    """Open a paper position only after server-side strategy and on-chain checks."""
+    if not session_status().get("active"):
+        return {"status": "rejected", "reason": "outside_strategy_session",
+                "session": session_status(), "live_trading_enabled": False}
+
+    ranked = fetch_qualified_wallets(500)
+    if ranked.get("status") != "ok":
+        return {"status": "rejected", "reason": "soulwinners_unavailable",
+                "source_status": ranked.get("status"), "live_trading_enabled": False}
+    top10, qualification = _soulwinners_top10(ranked.get("items", []))
+    if not top10:
+        return {"status": "rejected", "reason": "no_measured_top10_wallets",
+                "qualification": qualification, "live_trading_enabled": False}
+
+    flows = await fetch_wallet_flows(
+        limit=25, wallet_addresses=[row["wallet_address"] for row in top10]
+    )
+    propagation = build_atlas_propagation(flows, top10, window_seconds=300)
+    event = next((item for item in propagation.get("items", [])
+                  if item.get("mint") == payload.mint), None)
+    if event is None:
+        return {"status": "rejected", "reason": "no_verified_atlas_propagation",
+                "propagation_status": propagation.get("status"),
+                "live_trading_enabled": False}
+
+    safety = await verify_token(payload.mint, payload.lp_mint)
+    checks = safety.get("checks", {})
+    evidence = {
+        "origin_wallet_in_top10": event.get("origin_wallet") in {
+            row.get("wallet_address") for row in top10
+        },
+        "propagation_score": event.get("propagation_score"),
+        "following_whales_within_5m": event.get("following_whale_count"),
+        "crowding_score": event.get("crowding_score"),
+        "lp_burned": checks.get("lp_burned") is True,
+        "mint_revoked": checks.get("mint_revoked") is True,
+    }
+    decision = evaluate_entry(evidence)
+    if not decision.get("eligible"):
+        return {"status": "rejected", "reason": "mandatory_strategy_gate_failed",
+                "strategy_evaluation": decision, "onchain_safety": safety,
+                "atlas_evidence": event, "live_trading_enabled": False}
+
+    prices = await fetch_prices([payload.mint])
+    price_row = (prices.get("items") or {}).get(payload.mint)
+    if prices.get("status") != "ok" or not isinstance(price_row, dict):
+        return {"status": "rejected", "reason": "reliable_jupiter_price_unavailable",
+                "price_status": prices.get("status"), "live_trading_enabled": False}
+
+    opened = paper.buy(
+        payload.mint, payload.usd, price_row["usd_price"], event["origin_wallet"]
+    )
+    return {**opened, "strategy_evaluation": decision,
+            "atlas_evidence": event, "onchain_safety": safety,
+            "price_provider": "Jupiter Price API v3", "live_trading_enabled": False}
+
+@app.post("/api/v1/paper/mark")
+def paper_mark(payload: PaperMarkRequest):
+    return paper.mark_prices(payload.prices)
+
+@app.post("/api/v1/paper/close/{position_id}")
+def paper_close(position_id: int):
+    return paper.close(position_id)
+
+@app.get("/api/v1/strategy")
+def strategy_config():
+    return {
+        "strategy": STRATEGY,
+        "session": session_status(),
+        "live_trading_enabled": False,
+    }
+
+@app.post("/api/v1/strategy/evaluate")
+def strategy_evaluate(payload: dict):
+    # Missing evidence fails closed. This endpoint evaluates eligibility only;
+    # it does not create a paper or live order.
+    return evaluate_entry(payload)
