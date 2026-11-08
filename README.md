@@ -12,7 +12,7 @@ Android-first Solana whale-intelligence and paper-trading project. The app combi
 - AI: Grok via xAI Chat Completions. Model output is advisory and explicitly marked unverified.
 - Token checks: Solana finalized RPC checks mint authority and, only when the correct pool LP mint is supplied, checks whether its total supply is zero.
 - Prices: Jupiter Price API v3. Missing prices remain missing.
-- Portfolio: persistent PostgreSQL paper ledger; maximum 10 open positions by default and maximum 8% of current paper equity per position.
+- Portfolio: persistent PostgreSQL paper ledger; maximum 10 open positions by default and maximum 8% of current paper equity per position. The Android dashboard shows a measured daily Europe/Athens session recap (13:30–21:30) from ledger rows; unavailable database records are shown as unavailable, never as zero-performance claims.
 - Wallet: Android Mobile Wallet Adapter connection flow. No seed phrase/private key handling and no transaction signing or sending.
 
 ## Important integration boundaries
@@ -25,7 +25,7 @@ This is an integration project, not a vendored copy of the upstream projects.
 | [SoulWinners](https://github.com/forgottenpeak/soulwinners) | Wallet monitoring, history and classification | Upstream declares MIT. This project reads an existing database; it does not yet run the upstream 30-day collector. |
 | [Atlas](https://github.com/AtlasOnchain/Atlas) | Origin/follower propagation, sector context and crowding | README claims MIT, but the repository tree has no LICENSE file; treat licensing as unverified pending owner confirmation. Current adapter is an independent Helius-derived approximation + Grok advisory analysis, not the full Atlas runtime. |
 
-The upstream SoulWinners repository includes hard-coded API credentials in its public configuration file. This project does not copy or execute that configuration; any credentials owned by the upstream maintainer should be rotated. The SoulWinners table/schema initialization is **not ingestion**. To qualify wallets correctly, deploy the upstream collector and populate the same PostgreSQL database (or provide a verified export/API). Until measured 30-day win rate, trades, ROI, archetype and BES are present, candidates are excluded.
+The upstream SoulWinners repository includes hard-coded API credentials in its public configuration file. This project does not copy or execute that configuration; any credentials owned by the upstream maintainer should be rotated. The SoulWinners table/schema initialization is **not ingestion**. This project includes an admin-only candidate discovery/ingestion trigger that seeds candidate wallets from the GMGN 30-day leaderboard and stores raw Helius transaction history. It does **not** yet derive audited 30-day ROI, win rate, trade counts, archetype or BES from that history, and it is not automatically scheduled. Until those metrics are independently calculated and persisted, candidates are excluded.
 
 The independent deterministic propagation module now evaluates the qualified wallet set using observed Helius SWAPs and the published Atlas conceptual formula. It is explicitly labeled an Atlas-compatible approximation, not the upstream Atlas runtime. Grok's propagation/crowding estimates are not verified on-chain facts and cannot independently pass entry gates. The Atlas propagation score, follower timing and crowding calculation still require a verified implementation or deployed Atlas read-only service. LP mint discovery is also not implemented; the caller must supply the actual pool LP mint, and the endpoint warns that it cannot establish pool association itself.
 
@@ -64,7 +64,7 @@ Configure secrets on the backend host (never commit them):
 - `SOLANA_RPC_URL`: optional explicit Solana JSON-RPC URL.
 - `MAX_OPEN_POSITIONS`: default 10.
 
-The API health endpoint is `/health`; interactive API docs are `/docs`. Do not expose the backend publicly without TLS and suitable access controls.
+The API health endpoint is `/health`; interactive API docs are `/docs`. The paper session recap is exposed at `/api/v1/paper/session-summary` and reports only positions opened during the current Athens session window. Do not expose the backend publicly without TLS and suitable access controls.
 
 ## Android build
 
