@@ -1,6 +1,7 @@
 import asyncio
+import app.adapters.soulwinners_ingestion as ingestion
 from app.adapters.soulwinners_ingestion import _normalize, collect_wallet_history
-import httpx
+
 
 def test_normalize_enforces_exact_30_day_window():
     now = 2_000_000_000
@@ -11,18 +12,32 @@ def test_normalize_enforces_exact_30_day_window():
     assert _normalize({**tx, "timestamp": now + 1}, wallet, now - 200, now) is None
     assert _normalize({**tx, "timestamp": None}, wallet, now - 200, now) is None
 
+
 class FakeResponse:
-    def __init__(self, payload): self.payload = payload
-    def raise_for_status(self): pass
-    def json(self): return self.payload
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self.payload
+
 
 class FakeClient:
-    def __init__(self, pages): self.pages = pages; self.calls = []
+    def __init__(self, pages):
+        self.pages = pages
+        self.calls = []
+
     async def get(self, url, params):
         self.calls.append(params.copy())
         return FakeResponse(self.pages.pop(0))
 
-def test_history_paginates_until_cutoff_and_deduplicates():
+
+def test_history_paginates_until_cutoff_and_deduplicates(monkeypatch):
+    # Use a two-row page to exercise the same full-page pagination boundary
+    # without manufacturing 100 fixture transactions.
+    monkeypatch.setattr(ingestion, "PAGE_SIZE", 2)
     now = 2_000_000_000
     cutoff = now - 100
     wallet = "11111111111111111111111111111111"
@@ -37,6 +52,7 @@ def test_history_paginates_until_cutoff_and_deduplicates():
     assert result["stop_reason"] == "cutoff_reached"
     assert len(result["transactions"]) == 2
     assert client.calls[1]["before-signature"] == "s2"
+
 
 def test_page_limit_is_marked_incomplete():
     now = 2_000_000_000
