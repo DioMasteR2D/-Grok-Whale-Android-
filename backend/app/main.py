@@ -303,7 +303,7 @@ def _is_origin_exit_after_entry(tx: dict, origin: str, mint: str, opened_at: str
     )
 
 
-@app.get("/api/v1/paper/refresh")
+@app.get("/api/v1/paper/session-summary")\ndef paper_session_summary():\n    """Return measured paper activity for the Europe/Athens 13:30–21:30 session."""\n    return paper.session_summary()\n\n\n@app.get("/api/v1/paper/refresh")
 async def refresh_paper_prices():
     """Refresh open paper positions from Jupiter Price v3 and enforce paper SL."""
     portfolio = paper.summary()
