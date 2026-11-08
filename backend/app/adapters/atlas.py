@@ -71,12 +71,21 @@ async def _discover_wallets(limit=20):
 
 
 async def _fetch_one(client, address, limit):
-    url = f"{HELIUS_BASE}/addresses/{address}/transactions"
-    params = {"api-key": HELIUS_API_KEY, "limit": max(1, min(limit, 25))}
+    """Fetch one bounded page from Helius Parsed Events (successor to Enhanced Tx)."""
+    url = "https://mainnet.helius-rpc.com/v1/parsed-events/transaction-history"
+    payload = {
+        "address": address,
+        "limit": max(1, min(limit, 100)),
+        "sortOrder": "desc",
+        "commitment": "finalized",
+        "tokenAccounts": "balanceChanged",
+    }
     last_status = None
     for attempt in range(4):
         try:
-            response = await client.get(url, params=params)
+            response = await client.post(
+                url, params={"api-key": HELIUS_API_KEY}, json=payload
+            )
             last_status = response.status_code
             if response.status_code == 429 or response.status_code >= 500:
                 if attempt < 3:
@@ -88,19 +97,48 @@ async def _fetch_one(client, address, limit):
                     await asyncio.sleep(delay)
                     continue
             response.raise_for_status()
-            txs = response.json()
+            page = response.json()
+            if not isinstance(page, dict) or not isinstance(page.get("data"), list):
+                raise ValueError("Helius Parsed Events returned an invalid response")
+            transactions = []
+            for item in page["data"]:
+                if not isinstance(item, dict) or not isinstance(item.get("parsed"), dict):
+                    continue
+                parsed = item["parsed"]
+                transfers = []
+                for transfer in parsed.get("tokenTransfers", []):
+                    if not isinstance(transfer, dict):
+                        continue
+                    try:
+                        raw_amount = float(transfer.get("rawTokenAmount", 0))
+                        decimals = int(transfer.get("decimals", 0))
+                        token_amount = raw_amount / (10 ** max(0, min(decimals, 18)))
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    transfers.append({
+                        "mint": transfer.get("mint"),
+                        "tokenAmount": token_amount,
+                        "fromUserAccount": transfer.get("fromUserAccount"),
+                        "toUserAccount": transfer.get("toUserAccount"),
+                    })
+                summary = parsed.get("summary") or {}
+                summary_data = summary.get("parsedData") or {}
+                tx_type = summary_data.get("type") or summary.get("type") or "UNKNOWN"
+                transactions.append({
+                    "signature": item.get("signature"),
+                    "timestamp": parsed.get("blockTime"),
+                    "type": str(tx_type).upper(),
+                    "description": summary.get("description"),
+                    "fee_payer": parsed.get("feePayer"),
+                    "slot": parsed.get("slot"),
+                    "token_transfers": transfers,
+                    "native_transfers": parsed.get("nativeTransfers", []),
+                })
             return {
                 "wallet_address": address,
-                "transactions": [{
-                    "signature": tx.get("signature"),
-                    "timestamp": tx.get("timestamp"),
-                    "type": tx.get("type"),
-                    "description": tx.get("description"),
-                    "fee_payer": tx.get("feePayer"),
-                    "slot": tx.get("slot"),
-                    "token_transfers": tx.get("tokenTransfers", []),
-                    "native_transfers": tx.get("nativeTransfers", []),
-                } for tx in txs]
+                "transactions": transactions,
+                "pagination_token": page.get("paginationToken"),
+                "provider": "helius_parsed_events",
             }
         except (httpx.TimeoutException, httpx.TransportError):
             if attempt < 3:
@@ -108,10 +146,8 @@ async def _fetch_one(client, address, limit):
                 continue
             raise
         except httpx.HTTPStatusError:
-            # Do not include response body or API URL; those may contain secrets.
             raise RuntimeError(f"Helius HTTP {last_status}")
     raise RuntimeError(f"Helius HTTP {last_status or 'unknown'}")
-
 
 async def fetch_wallet_flows(limit: int = 10, wallet_addresses: list[str] | None = None) -> dict:
     if not HELIUS_API_KEY:
