@@ -28,6 +28,26 @@ app = FastAPI(title="DioMasteR2D Grok Whale API", version="0.6.0")
 _FLOW_CACHE_TTL_SECONDS = 45
 _flow_cache = {}
 _flow_cache_lock = asyncio.Lock()
+_SOULWINNERS_REFRESH_HOURS = max(1, min(24, int(os.getenv("SOULWINNERS_REFRESH_HOURS", "6"))))
+_soulwinners_worker_task = None
+_soulwinners_ingestion_lock = asyncio.Lock()
+
+async def _soulwinners_ingestion_worker():
+    """Keep candidate transaction history accumulating while the API is awake."""
+    await asyncio.sleep(30)
+    while True:
+        if DATABASE_URL and HELIUS_API_KEY and not _soulwinners_ingestion_lock.locked():
+            async with _soulwinners_ingestion_lock:
+                try:
+                    result = await discover_and_ingest_wallets(limit=20)
+                    logger.info(
+                        "SoulWinners scheduled ingestion status=%s candidates=%s completed=%s tx_upserted=%s",
+                        result.get("status"), result.get("candidates_discovered"),
+                        result.get("wallets_completed"), result.get("transactions_upserted")
+                    )
+                except Exception as exc:
+                    logger.warning("SoulWinners scheduled ingestion failed (%s)", type(exc).__name__)
+        await asyncio.sleep(_SOULWINNERS_REFRESH_HOURS * 3600)
 
 async def get_cached_wallet_flows(limit: int = 10):
     now = time.monotonic()
@@ -90,6 +110,10 @@ def initialize_sources():
             logger.warning("Paper portfolio initialization failed (%s)", type(exc).__name__)
     else:
         logger.info("SoulWinners PostgreSQL is not configured; skipping schema initialization.")
+    global _soulwinners_worker_task
+    if DATABASE_URL and HELIUS_API_KEY and _soulwinners_worker_task is None:
+        _soulwinners_worker_task = asyncio.get_running_loop().create_task(_soulwinners_ingestion_worker())
+        logger.info("SoulWinners scheduled 30-day collector enabled (every %s hours).", _SOULWINNERS_REFRESH_HOURS)
 
 @app.get("/")
 def root():
