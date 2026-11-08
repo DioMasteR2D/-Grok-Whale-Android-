@@ -35,9 +35,7 @@ STRATEGY = {
     },
     "position": {
         "max_position_portfolio_percent": 8.0,
-        "paper_trade_usd": 2.0,
-        "take_profit_percent": 10.0,
-        "stop_loss_percent": -5.0,
+        "stop_loss_percent": -6.0,
         "exit_when_origin_whale_exits": True,
     },
     "execution": {
@@ -82,9 +80,7 @@ def evaluate_entry(data: dict) -> dict:
         "failed_gates": [name for name, ok in checks.items() if not ok],
         "execution_mode": "paper",
         "position_size_percent": 8.0,
-        "paper_trade_usd": 2.0,
-        "take_profit_percent": 10.0,
-        "stop_loss_percent": -5.0,
+        "stop_loss_percent": -6.0,
         "live_trading_enabled": False,
         "message": "All Atlas entry gates passed; paper evaluation only." if passed
             else "Entry rejected: one or more mandatory gates failed or lack evidence.",
