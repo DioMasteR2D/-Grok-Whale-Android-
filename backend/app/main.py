@@ -76,6 +76,19 @@ class SoulWinnersIngestionRequest(BaseModel):
             raise ValueError("Every wallet must be a valid-looking Solana base58 address")
         return list(dict.fromkeys(value.strip() for value in values))
 
+class PaperBuyRequest(BaseModel):
+    mint: str = Field(min_length=32, max_length=44)
+    lp_mint: str = Field(min_length=32, max_length=44)
+    usd: float = Field(gt=0, le=1000)
+
+    @field_validator("mint", "lp_mint")
+    @classmethod
+    def validate_paper_addresses(cls, value):
+        if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", value):
+            raise ValueError("Must be a valid-looking Solana base58 address")
+        return value
+
+
 class PaperStatus(BaseModel):
     mode: str = "paper"
     live_trading_enabled: bool = False
@@ -267,6 +280,39 @@ def qualified_top_whales():
         "items": items,
         "qualification": qualification,
         "message": "Only rows with a measured win_rate >= 60%, ROI >= 50%, at least 15 trades, a supported archetype, and a source-computed BES are returned. profit_token_ratio is never substituted for win_rate. Missing exclusion labels cannot be independently verified.",
+    }
+
+
+@app.post("/api/v1/paper/buy")
+async def paper_buy(payload: PaperBuyRequest):
+    """Fail-closed paper entry; requires a verified session and measured SoulWinners top 10."""
+    session = session_status()
+    if not session.get("active"):
+        return {
+            "status": "rejected", "reason": "outside_strategy_session",
+            "session": session, "live_trading_enabled": False,
+        }
+
+    ranking = fetch_qualified_wallets(500)
+    if ranking.get("status") != "ok":
+        return {
+            "status": "rejected", "reason": "soulwinners_unavailable",
+            "live_trading_enabled": False,
+        }
+    top_items, qualification = _soulwinners_top10(ranking.get("items", []))
+    if not top_items:
+        return {
+            "status": "rejected", "reason": "no_measured_top10_wallets",
+            "qualification": qualification, "live_trading_enabled": False,
+        }
+
+    # No origin wallet / deterministic propagation proof is supplied by the
+    # current candidate signal contract. Never infer the six Atlas gates from
+    # AI output or an arbitrary client request; keep the paper order blocked.
+    return {
+        "status": "rejected", "reason": "atlas_entry_gates_unverified",
+        "message": "A measured origin wallet, deterministic propagation, crowding, LP burn and mint revocation proof are required.",
+        "qualification": qualification, "live_trading_enabled": False,
     }
 
 
@@ -478,9 +524,3 @@ def execution_readiness():
         "automatic_live_buys": False,
         "live_trading_enabled": False,
         "wallet_approval_required": True,
-        "soulwinners_database_status": db.get("status", "unknown"),
-        "checks": checks,
-        "blockers": blockers,
-        "ready_for_live_execution": False,
-        "message": "Live execution is fail-closed until every data, safety, wallet-approval, and risk check is verified.",
-    }
