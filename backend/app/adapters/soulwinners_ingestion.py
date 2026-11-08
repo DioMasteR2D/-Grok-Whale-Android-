@@ -85,8 +85,10 @@ async def collect_wallet_history(
         last_signature = None
         for tx in batch:
             if not isinstance(tx, dict):
-                continue
+                raise ValueError("Helius page contains a malformed transaction row")
             ts = _timestamp(tx)
+            if ts is None or not isinstance(tx.get("signature"), str) or not tx.get("signature"):
+                raise ValueError("Helius page contains a transaction without timestamp/signature; completeness cannot be proven")
             if ts is not None:
                 oldest_in_page = ts if oldest_in_page is None else min(oldest_in_page, ts)
             if isinstance(tx.get("signature"), str):
@@ -114,6 +116,31 @@ async def collect_wallet_history(
         "oldest_observed": min((r["block_time"] for r in rows.values()), default=None),
     }
 
+
+
+def initialize_ingestion_schema() -> None:
+    from app.adapters.soulwinners import DATABASE_URL
+    if not DATABASE_URL:
+        return
+    import psycopg
+    ddl = """
+    CREATE TABLE IF NOT EXISTS soulwinners_ingestion_runs (
+      id BIGSERIAL PRIMARY KEY, window_start TIMESTAMPTZ NOT NULL, window_end TIMESTAMPTZ NOT NULL,
+      source TEXT NOT NULL, wallets_requested INTEGER NOT NULL, wallets_completed INTEGER NOT NULL,
+      wallets_failed INTEGER NOT NULL, status TEXT NOT NULL CHECK (status IN ('complete','partial','failed')),
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CHECK (window_end > window_start));
+    CREATE TABLE IF NOT EXISTS soulwinners_wallet_transactions (
+      wallet_address TEXT NOT NULL, signature TEXT NOT NULL, block_time TIMESTAMPTZ NOT NULL,
+      tx_type TEXT NOT NULL, fee_lamports BIGINT NOT NULL DEFAULT 0, raw_json JSONB NOT NULL,
+      payload_hash TEXT NOT NULL, ingestion_run_id BIGINT NOT NULL REFERENCES soulwinners_ingestion_runs(id),
+      ingested_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(wallet_address, signature));
+    CREATE INDEX IF NOT EXISTS idx_sw_tx_block_time ON soulwinners_wallet_transactions(block_time);
+    CREATE INDEX IF NOT EXISTS idx_sw_tx_wallet_time ON soulwinners_wallet_transactions(wallet_address, block_time DESC);
+    """
+    with psycopg.connect(DATABASE_URL, connect_timeout=8) as conn:
+        with conn.cursor() as cur:
+            cur.execute(ddl)
 
 async def run_ingestion(wallets: list[str], days: int = 30) -> dict[str, Any]:
     """Fetch and persist bounded 30-day histories. No fabricated qualification."""
