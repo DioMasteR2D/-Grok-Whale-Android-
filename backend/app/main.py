@@ -33,20 +33,27 @@ _soulwinners_worker_task = None
 _soulwinners_ingestion_lock = asyncio.Lock()
 
 async def _soulwinners_ingestion_worker():
-    """Keep candidate transaction history accumulating while the API is awake."""
-    await asyncio.sleep(30)
+    """Run an initial bounded history collection, then refresh on a fixed cadence."""
     while True:
         if DATABASE_URL and HELIUS_API_KEY and not _soulwinners_ingestion_lock.locked():
             async with _soulwinners_ingestion_lock:
                 try:
+                    logger.info("SoulWinners collector starting candidate discovery.")
                     result = await discover_and_ingest_wallets(limit=20)
                     logger.info(
-                        "SoulWinners scheduled ingestion status=%s candidates=%s completed=%s tx_upserted=%s",
-                        result.get("status"), result.get("candidates_discovered"),
-                        result.get("wallets_completed"), result.get("transactions_upserted")
+                        "SoulWinners scheduled ingestion status=%s provider=%s candidates=%s completed=%s failed=%s tx_upserted=%s",
+                        result.get("status"), result.get("discovery_provider") or result.get("provider"),
+                        result.get("candidates_discovered"), result.get("wallets_completed"),
+                        len(result.get("wallets_failed", [])), result.get("transactions_upserted")
                     )
+                    if result.get("discovery_warnings"):
+                        logger.warning("SoulWinners discovery fallback warnings=%s", result.get("discovery_warnings"))
+                    if result.get("message"):
+                        logger.info("SoulWinners collector detail: %s", result.get("message"))
                 except Exception as exc:
                     logger.warning("SoulWinners scheduled ingestion failed (%s)", type(exc).__name__)
+        else:
+            logger.warning("SoulWinners collector skipped: database or Helius configuration missing.")
         await asyncio.sleep(_SOULWINNERS_REFRESH_HOURS * 3600)
 
 async def get_cached_wallet_flows(limit: int = 10):
@@ -90,7 +97,7 @@ class JupiterOrderRequest(BaseModel):
 
 
 @app.on_event("startup")
-def initialize_sources():
+async def initialize_sources():
     if DATABASE_URL:
         result = initialize_postgres_schema()
         if result.get("status") != "ok":
@@ -112,7 +119,7 @@ def initialize_sources():
         logger.info("SoulWinners PostgreSQL is not configured; skipping schema initialization.")
     global _soulwinners_worker_task
     if DATABASE_URL and HELIUS_API_KEY and _soulwinners_worker_task is None:
-        _soulwinners_worker_task = asyncio.get_running_loop().create_task(_soulwinners_ingestion_worker())
+        _soulwinners_worker_task = asyncio.create_task(_soulwinners_ingestion_worker())
         logger.info("SoulWinners scheduled 30-day collector enabled (every %s hours).", _SOULWINNERS_REFRESH_HOURS)
 
 @app.get("/")
@@ -477,102 +484,3 @@ def execution_readiness():
         "ready_for_live_execution": False,
         "message": "Live execution is fail-closed until every data, safety, wallet-approval, and risk check is verified.",
     }
-
-class PaperBuyRequest(BaseModel):
-    mint: str = Field(min_length=32, max_length=44)
-    lp_mint: str = Field(min_length=32, max_length=44)
-    usd: float = Field(gt=0, le=100000)
-
-    @field_validator("mint", "lp_mint")
-    @classmethod
-    def validate_paper_mints(cls, value):
-        if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", value):
-            raise ValueError("Must be a valid-looking Solana base58 address")
-        return value
-
-class PaperMarkRequest(BaseModel):
-    prices: dict[str, float]
-
-@app.get("/api/v1/paper-portfolio")
-def paper_portfolio():
-    return paper.summary()
-
-@app.post("/api/v1/paper/buy")
-async def paper_buy(payload: PaperBuyRequest):
-    """Open a paper position only after server-side strategy and on-chain checks."""
-    if not session_status().get("active"):
-        return {"status": "rejected", "reason": "outside_strategy_session",
-                "session": session_status(), "live_trading_enabled": False}
-
-    ranked = fetch_qualified_wallets(500)
-    if ranked.get("status") != "ok":
-        return {"status": "rejected", "reason": "soulwinners_unavailable",
-                "source_status": ranked.get("status"), "live_trading_enabled": False}
-    top10, qualification = _soulwinners_top10(ranked.get("items", []))
-    if not top10:
-        return {"status": "rejected", "reason": "no_measured_top10_wallets",
-                "qualification": qualification, "live_trading_enabled": False}
-
-    flows = await fetch_wallet_flows(
-        limit=25, wallet_addresses=[row["wallet_address"] for row in top10]
-    )
-    propagation = build_atlas_propagation(flows, top10, window_seconds=300)
-    event = next((item for item in propagation.get("items", [])
-                  if item.get("mint") == payload.mint), None)
-    if event is None:
-        return {"status": "rejected", "reason": "no_verified_atlas_propagation",
-                "propagation_status": propagation.get("status"),
-                "live_trading_enabled": False}
-
-    safety = await verify_token(payload.mint, payload.lp_mint)
-    checks = safety.get("checks", {})
-    evidence = {
-        "origin_wallet_in_top10": event.get("origin_wallet") in {
-            row.get("wallet_address") for row in top10
-        },
-        "propagation_score": event.get("propagation_score"),
-        "following_whales_within_5m": event.get("following_whale_count"),
-        "crowding_score": event.get("crowding_score"),
-        "lp_burned": checks.get("lp_burned") is True,
-        "mint_revoked": checks.get("mint_revoked") is True,
-    }
-    decision = evaluate_entry(evidence)
-    if not decision.get("eligible"):
-        return {"status": "rejected", "reason": "mandatory_strategy_gate_failed",
-                "strategy_evaluation": decision, "onchain_safety": safety,
-                "atlas_evidence": event, "live_trading_enabled": False}
-
-    prices = await fetch_prices([payload.mint])
-    price_row = (prices.get("items") or {}).get(payload.mint)
-    if prices.get("status") != "ok" or not isinstance(price_row, dict):
-        return {"status": "rejected", "reason": "reliable_jupiter_price_unavailable",
-                "price_status": prices.get("status"), "live_trading_enabled": False}
-
-    opened = paper.buy(
-        payload.mint, payload.usd, price_row["usd_price"], event["origin_wallet"]
-    )
-    return {**opened, "strategy_evaluation": decision,
-            "atlas_evidence": event, "onchain_safety": safety,
-            "price_provider": "Jupiter Price API v3", "live_trading_enabled": False}
-
-@app.post("/api/v1/paper/mark")
-def paper_mark(payload: PaperMarkRequest):
-    return paper.mark_prices(payload.prices)
-
-@app.post("/api/v1/paper/close/{position_id}")
-def paper_close(position_id: int):
-    return paper.close(position_id)
-
-@app.get("/api/v1/strategy")
-def strategy_config():
-    return {
-        "strategy": STRATEGY,
-        "session": session_status(),
-        "live_trading_enabled": False,
-    }
-
-@app.post("/api/v1/strategy/evaluate")
-def strategy_evaluate(payload: dict):
-    # Missing evidence fails closed. This endpoint evaluates eligibility only;
-    # it does not create a paper or live order.
-    return evaluate_entry(payload)
