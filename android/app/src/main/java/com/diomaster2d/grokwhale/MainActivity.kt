@@ -189,7 +189,8 @@ private suspend fun loadData():AppData = try {
     val readiness=api("/api/v1/execution/readiness")
     // Refresh paper marks and process observed origin-whale SWAP exits once per dashboard poll.
     runCatching { api("/api/v1/paper/refresh") }
-    val paper=api("/api/v1/paper-portfolio")\n    val session=runCatching { api("/api/v1/paper/session-summary") }.getOrNull()
+    val paper=api("/api/v1/paper-portfolio")
+    val session=runCatching { api("/api/v1/paper/session-summary") }.getOrNull()
     val arr=sig.optJSONArray("items")
     val whaleArray=top.optJSONArray("items")
     val whaleRows=buildList {
@@ -211,7 +212,7 @@ private suspend fun loadData():AppData = try {
         agent.optJSONArray("alerts") != null -> "scan complete · "+agent.optJSONArray("alerts")!!.length()+" alerts"
         else -> "scan returned"
     }
-    AppData(online=true,status="API ONLINE · SOURCE STATUS SHOWN BELOW",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows,readiness=if(readiness.optBoolean("ready_for_live_execution")) "All readiness checks passed" else "LIVE EXECUTION BLOCKED",blockers=buildList { val b=readiness.optJSONArray("blockers"); if(b!=null) for(i in 0 until b.length()) add(b.optString(i)) },paperSummary="Equity $"+paper.optDouble("equity",0.0)+" · Cash $"+paper.optDouble("cash",0.0)+" · Open "+(paper.optJSONArray("open_positions")?.length() ?: 0)+" · Realized PnL $"+paper.optDouble("realized_pnl",0.0),sessionSummary=if(session?.optString("status")=="ok") "Capital $"+"%.2f".format(session.optDouble("capital_deployed_usd"))+" · PnL $"+ "%.2f".format(session.optDouble("total_pnl_usd"))+" (realized $"+"%.2f".format(session.optDouble("realized_pnl_usd"))+")\nTrades "+session.optInt("trades")+" · Memes "+session.optInt("memes")+" · Whales "+session.optInt("whales")+"\nClosed "+session.optInt("closed_positions")+" · Open "+session.optInt("open_positions") else "Verified session records unavailable")
+    AppData(online=true,status="API ONLINE · SOURCE STATUS SHOWN BELOW",soul=top.optString("status",src.optString("soulwinners_database","unknown")),atlas=agentStatus,discovery=flow.optString("discovery","unknown"),flow=flow.optString("status","unknown"),wallets=flow.optInt("wallets_with_activity_response",0).toString()+" / "+flow.optInt("wallets_discovered",0),signals=rows,topWhales=whaleRows,readiness=if(readiness.optBoolean("ready_for_live_execution")) "All readiness checks passed" else "LIVE EXECUTION BLOCKED",blockers=buildList { val b=readiness.optJSONArray("blockers"); if(b!=null) for(i in 0 until b.length()) add(b.optString(i)) },paperSummary="Equity $"+paper.optDouble("equity",0.0)+" · Cash $"+paper.optDouble("cash",0.0)+" · Open "+(paper.optJSONArray("open_positions")?.length() ?: 0)+" · Realized PnL $"+paper.optDouble("realized_pnl",0.0),sessionSummary=if(session != null && session.optString("status")=="ok") "Capital $"+"%.2f".format(session.optDouble("capital_deployed_usd"))+" · PnL $"+ "%.2f".format(session.optDouble("total_pnl_usd"))+" (realized $"+"%.2f".format(session.optDouble("realized_pnl_usd"))+")\nTrades "+session.optInt("trades")+" · Memes "+session.optInt("memes")+" · Whales "+session.optInt("whales")+"\nClosed "+session.optInt("closed_positions")+" · Open "+session.optInt("open_positions") else "Verified session records unavailable")
 } catch(e:Exception) { AppData(status="API OFFLINE",error=e.message ?: "Unknown error") }
 
 @Composable
